@@ -5,9 +5,9 @@ Ejection seats are something you add to a cockpit, not a separate part. Any crew
 force and angle, and an **Eject crew** action goes into your **Abort** group. You can move it to any other
 action group.
 
-## Install
+## Dependencies
 
-Drop `GameData/EjectionSeats` into your GameData folder. Needs ModuleManager.
+* [ModuleManager](https://github.com/sarbian/ModuleManager)
 
 ## In the editor (right-click any crewed pod)
 

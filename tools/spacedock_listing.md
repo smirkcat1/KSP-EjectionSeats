@@ -37,9 +37,7 @@ each kerbal should leave, finds the canopy and plans a clear path out of the cra
 * The spent seat becomes a real part with leftover SolidFuel, so it breaks up when it hits the ground.
 * Parachutes use the stock canopy models, so parachute retextures apply to them.
 
-**Requirements:** ModuleManager.
+**Dependencies:** ModuleManager (https://github.com/sarbian/ModuleManager).
 
 **Optional, supported:** BDArmory (missile exhaust plumes), ReStock, RealWindows, FreeIVA, TweakScale,
 StretchScale, BetterTimeWarp (watch ejections in slow motion), C.A.N.O.P.I.E.S. (cloth canopies).
-
-**Installation:** drop `GameData/EjectionSeats` into your GameData folder. Needs ModuleManager.
