@@ -7,11 +7,7 @@ action group.
 
 ## Install
 
-1. ModuleManager is required (you already have it).
-2. Copy `GameData/EjectionSeats` into `Kerbal Space Program/GameData/`, or run
-   `powershell -ExecutionPolicy Bypass -File build.ps1 -Install`, which rebuilds the DLL and copies it in.
-3. BDArmory is optional. If it is installed, the seat rockets use BDA's missile exhaust (`smallExhaust`).
-   Without it, a built-in flame and smoke-trail plume is used instead.
+Drop `GameData/EjectionSeats` into your GameData folder. Needs ModuleManager.
 
 ## In the editor (right-click any crewed pod)
 

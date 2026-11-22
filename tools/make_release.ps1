@@ -38,9 +38,7 @@ $avc = "{`r`n" +
        '  "KSP_VERSION_MAX": ' + (V $KSP_MAX) + "`r`n}`r`n"
 [IO.File]::WriteAllText((Join-Path $gd "EjectionSeats.version"), $avc)
 
-Copy-Item (Join-Path $root "README.md") (Join-Path $gd "README.md")
 Copy-Item (Join-Path $root "CHANGELOG.md") (Join-Path $gd "CHANGELOG.md")
-Copy-Item (Join-Path $root "README.md") (Join-Path $stage "README.md")
 Copy-Item (Join-Path $root "CHANGELOG.md") (Join-Path $stage "CHANGELOG.md")
 Copy-Item (Join-Path $root "tools\spacedock_listing.md") (Join-Path $stage "SPACEDOCK_LISTING.md")
 foreach ($lic in "LICENSE", "LICENSE.txt", "LICENSE.md") {
@@ -49,14 +47,14 @@ foreach ($lic in "LICENSE", "LICENSE.txt", "LICENSE.md") {
 }
 
 # zip with forward-slash paths (Compress-Archive on Windows PowerShell writes backslashes, which breaks
-# extraction on Linux/macOS and CKAN). Contents: GameData/EjectionSeats/..., plus README and CHANGELOG.
+# extraction on Linux/macOS and CKAN). Contents: GameData/EjectionSeats/..., plus CHANGELOG and LICENSE.
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 $zip = Join-Path $rel "$name.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
 $z = [IO.Compression.ZipFile]::Open($zip, [IO.Compression.ZipArchiveMode]::Create)
 try {
     $files = @(Get-ChildItem (Join-Path $stage "GameData") -Recurse -File) +
-             @(Get-ChildItem $stage -File | Where-Object { $_.Name -in "README.md", "CHANGELOG.md", "LICENSE" })
+             @(Get-ChildItem $stage -File | Where-Object { $_.Name -in "CHANGELOG.md", "LICENSE" })
     foreach ($f in $files) {
         $entry = $f.FullName.Substring($stage.Length + 1).Replace('\', '/')
         [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile($z, $f.FullName, $entry, [IO.Compression.CompressionLevel]::Optimal)

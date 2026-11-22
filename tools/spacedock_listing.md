@@ -42,5 +42,4 @@ each kerbal should leave, finds the canopy and plans a clear path out of the cra
 **Optional, supported:** BDArmory (missile exhaust plumes), ReStock, RealWindows, FreeIVA, TweakScale,
 StretchScale, BetterTimeWarp (watch ejections in slow motion), C.A.N.O.P.I.E.S. (cloth canopies).
 
-**Installation:** copy the `GameData/EjectionSeats` folder from the zip into your KSP `GameData` folder.
-Install ModuleManager as well.
+**Installation:** drop `GameData/EjectionSeats` into your GameData folder. Needs ModuleManager.
