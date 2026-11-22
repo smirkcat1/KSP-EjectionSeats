@@ -6,6 +6,8 @@ Fill in the SpaceDock "Create a new mod" form with the text below, then upload t
 
 **Game version:** 1.12.5 (works on 1.12.x)
 
+**Source code:** https://github.com/smirkcat1/KSP-EjectionSeats
+
 **License:** MIT (choose "MIT" in the form; the LICENSE file is in the zip).
 
 **Short description** (shown in mod lists):
