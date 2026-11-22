@@ -1,0 +1,11 @@
+# build output (the release zip carries the compiled plugin)
+GameData/EjectionSeats/Plugins/*.dll
+GameData/EjectionSeats/PluginData/
+release/
+backup_*/
+
+# editor / OS clutter
+.vs/
+*.user
+*.suo
+Thumbs.db
