@@ -662,20 +662,24 @@ namespace EjectionSeats
                 for (int x = 0; x < W; x++)
                 {
                     float u = Mathf.Abs(x / (W - 1f) * 2f - 1f);
+                    // Solid-motor flame: no shock diamonds, no taper to a point. A thick, opaque, near-white column
+                    // that widens downstream with ragged, churning edges and breaks up into the smoke.
                     float half, i;
+                    float wob = Mathf.PerlinNoise(y * 0.045f + (core ? 2f : 9f), 0.5f);              // lumpy outline
+                    float churn = 0.6f * Mathf.PerlinNoise(x * 0.11f + 1f, y * 0.035f)
+                                + 0.4f * Mathf.PerlinNoise(x * 0.27f + 5f, y * 0.09f);               // turbulent cells
                     if (core)
                     {
-                        half = Mathf.Lerp(0.62f, 0.06f, Mathf.Pow(v, 0.75f));
-                        float diamonds = Mathf.Pow(Mathf.Max(0f, Mathf.Sin(v * Mathf.PI * 9f)), 5f) * (1f - v);
-                        i = Mathf.Pow(1f - v, 1.15f) * (0.48f + 1.05f * diamonds);
+                        half = (0.34f + 0.22f * v) * (0.82f + 0.36f * wob);
+                        i = (1f - Ramp(0.3f, 1f, v)) * (0.78f + 0.4f * churn);
                     }
                     else
                     {
-                        half = 0.24f + 0.52f * Mathf.Sin(Mathf.Min(1f, v * 2.2f) * Mathf.PI * 0.55f) * (1f - v);
-                        float n = Mathf.PerlinNoise(x * 0.16f + 3f, y * 0.009f);
-                        i = Mathf.Pow(1f - v, 1.8f) * (0.72f + 0.34f * n);
+                        half = (0.42f + 0.5f * Ramp(0f, 0.55f, v)) * (0.78f + 0.4f * wob);
+                        i = Mathf.Pow(1f - Ramp(0.1f, 1f, v), 1.25f) * (0.45f + 0.75f * churn);
                     }
-                    float edge = 1f - Ramp(half * 0.25f, Mathf.Max(0.02f, half), u);
+                    half = Mathf.Min(half, 0.98f);
+                    float edge = 1f - Ramp(half * (core ? 0.45f : 0.3f), Mathf.Max(0.02f, half), u * (0.9f + 0.2f * churn));
                     float a = Mathf.Clamp01(edge * i * Ramp(0f, 0.035f, v + 0.012f));
                     px[y * W + x] = new Color(a, a, a, a);
                 }

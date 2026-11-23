@@ -1,12 +1,24 @@
 # Changelog
 
-## 1.1.1
+## 1.2.0
 
 * Fixed the ejection seat (and the kerbal in it) starting about 20 cm below the cockpit's own seat. The kerbal now
   starts exactly where they were sitting in the IVA, in any cockpit.
 * The jettisoned canopy no longer has its cabin lights on.
 * Ejection seats can now be installed in crew cabins too (Mk1 Crew Cabin, Mk3 Passenger Module and the like),
   not just cockpits and command pods.
+* Ejecting kerbals no longer knock the craft into a spin.
+* Kerbals no longer collide with ejection seats (their own or a crewmate's) while riding one and for 2 seconds after
+  separating, which sometimes killed them or flung them off at seat separation. The spent seat has no collisions
+  at all until it is clear of the kerbal.
+* You can cut the seat parachute away: right-click the kerbal and press "Cut parachute" (no keybind, so it never
+  clashes with other keys or mods). The kerbal can still open their own EVA parachute afterwards.
+* The seat rocket now looks like a solid rocket motor: a thick, bright yellow-white flame with churning fire and
+  sparks instead of a liquid-engine flame with shock diamonds.
+* Seat plumes can be tuned per seat with EJECTION_PLUME configs in `GameData/EjectionSeats/Plumes` (flame size and
+  colour, fire, sparks, smoke, light, and the nozzle's position and angle). They are re-read without restarting.
+* Each seat now has its own plume, modelled on real seat-test footage: a short white-hot jet with a big glow, sparks
+  and a thick smoke trail, tan on modern seats, grey-brown on Cold War seats and dark grey on the WWII cartridges.
 
 ## 1.1.0
 

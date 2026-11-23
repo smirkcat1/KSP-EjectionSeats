@@ -15,10 +15,16 @@ namespace EjectionSeats
         [KSPField(isPersistant = true)]
         public string seatVariant = "modern";
 
+        /// <summary>Every spent seat part in the flight scene (kerbals ignore them for a moment after separating).</summary>
+        public static readonly HashSet<ModuleEjectionSeatPart> Live = new HashSet<ModuleEjectionSeatPart>();
+
         GameObject visual;
+
+        void OnDestroy() { Live.Remove(this); }
 
         public override void OnStart(StartState state)
         {
+            if (HighLogic.LoadedSceneIsFlight) Live.Add(this);
             if (!HighLogic.LoadedSceneIsFlight || visual != null) return;
             var S = EjectionSettings.Get();
             var built = SeatModel.Build(SeatVariant.Get(seatVariant), S.seatScale);
@@ -47,6 +53,73 @@ namespace EjectionSeats
     }
 
     /// <summary>
+    /// Keeps a spent seat's colliders switched off for a moment after separation, so it can never knock the kerbal
+    /// it has just released (ignoring collider pairs is not enough: Unity forgets the pairs whenever KSP switches a
+    /// collider on, which it does when the seat part comes off rails right next to the kerbal). They come back once
+    /// the time is up and no kerbal is within reach, and always near the ground so the seat can't sink into it.
+    /// </summary>
+    public class SeatNoCollide : MonoBehaviour
+    {
+        const float KerbalClearance = 1.5f;   // metres between seat and any kerbal before collisions return
+        const float MaxExtra = 3f;            // never more than this past the planned time
+        const float GroundClearance = 4f;     // metres: closer to the ground than this, collisions are always on
+        public float until;
+        readonly List<Collider> off = new List<Collider>();
+
+        public static SeatNoCollide Apply(GameObject go, float until)
+        {
+            if (go == null) return null;
+            var n = go.GetComponent<SeatNoCollide>() ?? go.AddComponent<SeatNoCollide>();
+            n.until = Mathf.Max(n.until, until);
+            n.Hold();
+            return n;
+        }
+
+        void Hold()
+        {
+            foreach (var c in GetComponentsInChildren<Collider>(true))
+            {
+                if (c == null || c.isTrigger || !c.enabled) continue;
+                c.enabled = false;
+                if (!off.Contains(c)) off.Add(c);
+            }
+        }
+
+        void Release()
+        {
+            foreach (var c in off) if (c != null) c.enabled = true;
+            off.Clear();
+            Destroy(this);
+        }
+
+        bool NearGround()
+        {
+            Vector3 p = transform.position;
+            Vector3 up = FlightGlobals.getUpAxis(p);
+            return Physics.Raycast(p + up * 0.5f, -up, GroundClearance + 0.5f, 1 << 15, QueryTriggerInteraction.Ignore);
+        }
+
+        bool KerbalNear()
+        {
+            Vector3 p = transform.position;
+            foreach (var v in FlightGlobals.VesselsLoaded)
+                if (v != null && v.isEVA && (v.CoMD - (Vector3d)p).sqrMagnitude < KerbalClearance * KerbalClearance) return true;
+            return false;
+        }
+
+        void FixedUpdate()
+        {
+            float now = Time.time;
+            if (NearGround() || now > until + MaxExtra || (now >= until && !KerbalNear())) { Release(); return; }
+            Hold();   // KSP may have switched one back on (coming off rails, packing)
+        }
+
+        void LateUpdate() { if (off.Count > 0 || Time.time < until) Hold(); }
+
+        void OnDestroy() { foreach (var c in off) if (c != null) c.enabled = true; }
+    }
+
+    /// <summary>
     /// At seat/man separation the seat first flies on as a lightweight physics object. Meanwhile a one-part
     /// vessel is created; as soon as KSP has it loaded and off rails it is put exactly where the stand-in is,
     /// with the same velocity and spin, and the stand-in is removed.
@@ -61,7 +134,8 @@ namespace EjectionSeats
         Vessel vessel;
         uint flightId;
         List<Collider> ignore;
-        float age;
+        float age, separatedAt;
+        public const float NoCollideTime = 2f;   // seconds after separation the spent seat collides with nothing
 
         public static bool IsPending(uint id) { return pending.Contains(id); }
 
@@ -120,6 +194,7 @@ namespace EjectionSeats
                 h.vessel = pv.vesselRef;
                 h.flightId = id;
                 h.ignore = ignore ?? new List<Collider>();
+                h.separatedAt = Time.time;
                 Log.Dbg("seat part spawned: " + name + " fuel " + fuelLeft.ToString("F2"));
             }
             catch (Exception e)
@@ -139,10 +214,8 @@ namespace EjectionSeats
             Part p = vessel.rootPart;
             if (vessel.loaded && p != null)
             {
-                // never let the waiting part knock the kerbal or the craft about
-                foreach (var c in p.GetComponentsInChildren<Collider>(true))
-                    foreach (var o in ignore)
-                        if (c != null && o != null) Physics.IgnoreCollision(c, o, true);
+                // never let the waiting part knock the kerbal or the craft about: no colliders until it's clear
+                SeatNoCollide.Apply(p.gameObject, separatedAt + NoCollideTime);
                 var mod = p.FindModuleImplementing<ModuleEjectionSeatPart>();
                 if (mod != null) mod.SetVisible(false);
                 if (vessel.packed) { try { vessel.GoOffRails(); } catch { } }

@@ -27,28 +27,32 @@ namespace EjectionSeats
         }
         readonly List<FlameSheet> sheets = new List<FlameSheet>();
         float power, thrustAge;
+        PlumeConfig plume;
         public static Camera ViewCameraOverride;   // used by the development render tool
 
         public static SeatRocketFX Create(GameObject seatRoot, List<Transform> nozzles, EjectionSettings s, SeatVariant variant = null)
         {
             var fx = seatRoot.AddComponent<SeatRocketFX>();
             if (variant == null) variant = SeatVariant.All[0];
+            var pc = PlumeConfig.For(variant, s);   // per-seat plume, tuned with tools/plume_editor
+            fx.plume = pc;
             foreach (var n in nozzles)
             {
+                pc.FitNozzle(n);
                 bool ok = false;
                 if (s.useBDAPlumes && !string.IsNullOrEmpty(s.plumePrefab) && GameDatabase.Instance.ExistsModel(s.plumePrefab))
                     ok = fx.AttachBDA(n, s);
                 if (!ok) fx.AttachBuiltIn(n, s);
-                if (s.enhancedFlames) fx.AttachFlame(n, s, variant);
-                if (s.srbSmoke) fx.smokes.Add(SrbSmoke.Create(n, s, 0.45f * variant.flameLength * s.flameScale));
+                if (s.enhancedFlames) fx.AttachFlame(n, s, pc);
+                if (s.srbSmoke) fx.smokes.Add(SrbSmoke.Create(n, s, pc.smokeStart * pc.flameLength * s.flameScale, pc));
 
                 var lgo = new GameObject("rocketLight");
                 lgo.transform.SetParent(n, false);
                 lgo.transform.localPosition = new Vector3(0f, 0f, 0.65f);
                 var l = lgo.AddComponent<Light>();
                 l.type = LightType.Point;
-                l.color = variant.flameMid;
-                l.range = 4f;
+                l.color = pc.flameColor;
+                l.range = pc.lightRange;
                 l.intensity = 0f;
                 fx.lights.Add(l);
             }
@@ -179,28 +183,59 @@ namespace EjectionSeats
             var vel = smoke.limitVelocityOverLifetime; vel.enabled = true; vel.limit = 1.5f; vel.dampen = 0.15f;
         }
 
-        void AttachFlame(Transform nozzle, EjectionSettings s, SeatVariant v)
+        void AttachFlame(Transform nozzle, EjectionSettings s, PlumeConfig p)
         {
-            float L = 1.35f * v.flameLength * s.flameScale, W = 0.31f * v.flameWidth * s.flameScale;
-            AddSheet(nozzle, MatLib.FlameBody, v.flameOuter * 0.32f, L * 1.2f, W * 1.45f, 19f, false);
-            AddSheet(nozzle, MatLib.FlameBody, v.flameOuter * 0.62f, L, W, 27f, false);
-            AddSheet(nozzle, MatLib.FlameBody, v.flameMid * 0.62f, L * 0.68f, W * 0.62f, 34f, false);
-            AddSheet(nozzle, MatLib.FlameCore, v.flameCore, L * 0.52f, W * 0.42f, 43f, false);
-            AddSheet(nozzle, MatLib.SoftDot, v.flameMid * 0.42f, W * 1.25f, W * 1.25f, 31f, true);
+            // Solid rocket motor look: a fat, opaque, yellow-white flame with churning edges (burning aluminium),
+            // a shower of sparks and the smoke starting right at its tip. No shock diamonds or blue core.
+            // Every number here can be tuned per seat with tools/plume_editor (EJECTION_PLUME configs).
+            float L = 1.2f * p.flameLength * s.flameScale, W = 0.42f * p.flameWidth * s.flameScale;
+            Color hot = p.coreColor, yellow = p.flameColor, orange = p.edgeColor;
+            float fl = Mathf.Max(0.05f, p.flicker);
+            AddSheet(nozzle, MatLib.FlameBody, orange * p.outerOpacity, L * 1.15f, W * 1.55f, 23f * fl, false);
+            AddSheet(nozzle, MatLib.FlameBody, yellow * p.bodyOpacity, L, W * 1.1f, 31f * fl, false);
+            AddSheet(nozzle, MatLib.FlameCore, yellow * 0.9f, L * (p.coreLength + 0.25f), W * (p.coreWidth + 0.25f), 39f * fl, false);
+            AddSheet(nozzle, MatLib.FlameCore, hot, L * p.coreLength, W * p.coreWidth, 47f * fl, false);
+            if (p.glowSize > 0.01f) AddSheet(nozzle, MatLib.SoftDot, yellow * p.glowBrightness, W * p.glowSize, W * p.glowSize, 29f * fl, true);
 
-            // hot embers thrown out of the plume
-            var em = NewSystem(nozzle, "embers", true, true);
-            var m = em.main;
-            m.startLifetime = new ParticleSystem.MinMaxCurve(0.2f, 0.55f);
-            m.startSpeed = new ParticleSystem.MinMaxCurve(5f * L, 12f * L);
-            m.startSize = new ParticleSystem.MinMaxCurve(0.012f, 0.032f);
-            m.startColor = new ParticleSystem.MinMaxGradient(v.flameMid, v.flameOuter);
-            m.maxParticles = 120;
-            var rate = em.emission; rate.rateOverTime = 70f * v.flameLength;
-            var sh = em.shape; sh.shapeType = ParticleSystemShapeType.Cone; sh.angle = 15f; sh.radius = 0.025f;
-            var col = em.colorOverLifetime; col.enabled = true; col.color = Grad(Color.white, 1f, v.flameOuter, 0f);
-            var r = em.GetComponent<ParticleSystemRenderer>();
-            r.renderMode = ParticleSystemRenderMode.Stretch; r.velocityScale = 0.018f; r.lengthScale = 1.2f;
+            // churning fire: lumpy, rolling blobs of flame that pour out of the nozzle and grow
+            if (p.fireRate > 0f)
+            {
+                var fire = NewSystem(nozzle, "srbFire", true, false);
+                fire.GetComponent<ParticleSystemRenderer>().sharedMaterial = MatLib.ParticleTex(true, MatLib.Puff);
+                var fm = fire.main;
+                fm.startLifetime = new ParticleSystem.MinMaxCurve(0.1f * p.fireLife, 0.2f * p.fireLife);
+                fm.startSpeed = new ParticleSystem.MinMaxCurve(5f * L * p.fireSpeed, 8f * L * p.fireSpeed);
+                fm.startSize = new ParticleSystem.MinMaxCurve(W * 0.45f * p.fireSize, W * 0.75f * p.fireSize);
+                fm.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
+                fm.startColor = new ParticleSystem.MinMaxGradient(hot, yellow);
+                fm.maxParticles = Mathf.Clamp(Mathf.CeilToInt(p.fireRate * 0.26f * p.fireLife) + 20, 50, 2000);
+                var fr = fire.emission; fr.rateOverTime = p.fireRate;
+                var fs = fire.shape; fs.shapeType = ParticleSystemShapeType.Cone; fs.angle = p.fireSpread; fs.radius = 0.03f;
+                var fsz = fire.sizeOverLifetime; fsz.enabled = true; fsz.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.EaseInOut(0f, 0.7f, 1f, 2.1f));
+                var frot = fire.rotationOverLifetime; frot.enabled = true; frot.z = new ParticleSystem.MinMaxCurve(-4f, 4f);
+                var fcol = fire.colorOverLifetime; fcol.enabled = true;
+                var fg = new Gradient();
+                fg.SetKeys(new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(yellow, 0.35f), new GradientColorKey(orange, 1f) },
+                           new[] { new GradientAlphaKey(0.9f, 0f), new GradientAlphaKey(0.75f, 0.45f), new GradientAlphaKey(0f, 1f) });
+                fcol.color = fg;
+            }
+
+            // burning aluminium sparks thrown out of the plume
+            if (p.sparkRate > 0f)
+            {
+                var em = NewSystem(nozzle, "embers", true, true);
+                var m = em.main;
+                m.startLifetime = new ParticleSystem.MinMaxCurve(0.25f * p.sparkLife, 0.7f * p.sparkLife);
+                m.startSpeed = new ParticleSystem.MinMaxCurve(5f * L * p.sparkSpeed, 13f * L * p.sparkSpeed);
+                m.startSize = new ParticleSystem.MinMaxCurve(0.015f, 0.04f);
+                m.startColor = new ParticleSystem.MinMaxGradient(hot, yellow);
+                m.maxParticles = Mathf.Clamp(Mathf.CeilToInt(p.sparkRate * 0.91f * p.sparkLife) + 20, 50, 3000);
+                var rate = em.emission; rate.rateOverTime = p.sparkRate;
+                var sh = em.shape; sh.shapeType = ParticleSystemShapeType.Cone; sh.angle = p.sparkSpread; sh.radius = 0.03f;
+                var col = em.colorOverLifetime; col.enabled = true; col.color = Grad(Color.white, 1f, orange, 0f);
+                var r = em.GetComponent<ParticleSystemRenderer>();
+                r.renderMode = ParticleSystemRenderMode.Stretch; r.velocityScale = 0.02f; r.lengthScale = 1.3f;
+            }
         }
 
         void AddSheet(Transform nozzle, Texture2D tex, Color tint, float length, float width, float flicker, bool glow)
@@ -322,7 +357,7 @@ namespace EjectionSeats
             thrustAge += Time.deltaTime;
             float target = thrusting ? 1f + 0.45f * Mathf.Exp(-thrustAge * 11f) : 0f;
             power = Mathf.MoveTowards(power, target, Time.deltaTime * (thrusting ? 16f : 6f));
-            float flicker = power * (0.75f + UnityEngine.Random.value * 0.3f);
+            float flicker = power * (1.1f + UnityEngine.Random.value * 0.5f) * (plume != null ? plume.lightIntensity : 1f);
             foreach (var l in lights) if (l != null) l.intensity = Mathf.MoveTowards(l.intensity, flicker, Time.deltaTime * 40f);
             // smoke carries on thinning for a moment after burnout, as a solid motor tails off
             smokePower = thrusting ? 1f : Mathf.MoveTowards(smokePower, 0f, Time.deltaTime / 1.6f);
@@ -350,7 +385,7 @@ namespace EjectionSeats
         float perSecond, perMetre, offset, life;
         bool registered, stopping;
 
-        public static SrbSmoke Create(Transform nozzle, EjectionSettings s, float offset)
+        public static SrbSmoke Create(Transform nozzle, EjectionSettings s, float offset, PlumeConfig p = null)
         {
             var go = new GameObject("EjectionSeat_SrbSmoke");
             go.AddComponent<EjectionGenerated>();
@@ -358,10 +393,16 @@ namespace EjectionSeats
             sm.nozzle = nozzle;
             sm.offset = offset;
             sm.body = nozzle.GetComponentInParent<Rigidbody>();
-            float amount = Mathf.Max(0f, s.srbSmokeAmount);
+            float amount = Mathf.Max(0f, s.srbSmokeAmount) * (p != null ? Mathf.Max(0f, p.smokeAmount) : 1f);
             sm.perSecond = 70f * amount;
             sm.perMetre = 1.4f * amount;
-            sm.life = Mathf.Max(1f, s.srbSmokeLifetime);
+            sm.life = Mathf.Max(1f, p != null ? p.smokeLife : s.srbSmokeLifetime);
+            float size = p != null ? Mathf.Max(0.05f, p.smokeSize) : 1f;
+            float opacity = p != null ? Mathf.Max(0f, p.smokeOpacity) : 1f;
+            Color sc = p != null ? p.smokeColor : new Color(0.96f, 0.95f, 0.93f);
+            Color sc2 = new Color(sc.r * 0.833f, sc.g * 0.842f, sc.b * 0.839f);
+            // the trail greys slightly as it ages (as a tint on the start colour)
+            Color ageTint = new Color(0.875f, 0.884f, 0.892f);
 
             var ps = go.AddComponent<ParticleSystem>();
             ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
@@ -372,9 +413,9 @@ namespace EjectionSeats
             m.simulationSpace = ParticleSystemSimulationSpace.World;
             m.startLifetime = new ParticleSystem.MinMaxCurve(sm.life * 0.7f, sm.life * 1.15f);
             m.startSpeed = new ParticleSystem.MinMaxCurve(5f, 11f);
-            m.startSize = new ParticleSystem.MinMaxCurve(0.55f, 0.9f);
+            m.startSize = new ParticleSystem.MinMaxCurve(0.55f * size, 0.9f * size);
             m.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
-            m.startColor = new ParticleSystem.MinMaxGradient(new Color(0.96f, 0.95f, 0.93f, 0.9f), new Color(0.8f, 0.8f, 0.78f, 0.7f));
+            m.startColor = new ParticleSystem.MinMaxGradient(new Color(sc.r, sc.g, sc.b, Mathf.Clamp01(0.9f * opacity)), new Color(sc2.r, sc2.g, sc2.b, Mathf.Clamp01(0.7f * opacity)));
             m.maxParticles = 2500;
             var em = ps.emission;
             em.rateOverTime = 0f;
@@ -386,7 +427,7 @@ namespace EjectionSeats
 
             var fade = new Gradient();
             fade.SetKeys(
-                new[] { new GradientColorKey(new Color(1f, 0.8f, 0.52f), 0f), new GradientColorKey(new Color(0.96f, 0.95f, 0.93f), 0.04f), new GradientColorKey(new Color(0.84f, 0.84f, 0.83f), 1f) },
+                new[] { new GradientColorKey(new Color(1f, 0.8f, 0.52f), 0f), new GradientColorKey(Color.white, 0.04f), new GradientColorKey(ageTint, 1f) },
                 new[] { new GradientAlphaKey(0f, 0f), new GradientAlphaKey(0.95f, 0.02f), new GradientAlphaKey(0.8f, 0.25f), new GradientAlphaKey(0.42f, 0.6f), new GradientAlphaKey(0.12f, 0.85f), new GradientAlphaKey(0f, 1f) });
             var col = ps.colorOverLifetime; col.enabled = true; col.color = fade;
 

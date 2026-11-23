@@ -278,9 +278,48 @@ namespace EjectionSeats
         // kerbal (going off rails, helmet, gear) and to the craft. Until the kerbal is clear, keep re-applying it.
         void FixedUpdate()
         {
+            GuardSeats();
             if (collisionsRestored || done || eva == null) return;
             IgnoreVessel(true);
             if (running.Count > 1) IgnoreOtherCrew();
+        }
+
+        // ---- no collisions with ejection seats while riding one and for a while after separating ----
+        // Unity forgets IgnoreCollision whenever either collider is switched off and on, and the spent seat swaps its
+        // stand-in collider for a real part's, so the pairs are re-applied every physics step until the time is up.
+        const float SeatNoCollideAfter = 2f;   // seconds after separation
+        static readonly List<GameObject> standIns = new List<GameObject>();
+        float separatedAt = -1f;
+        bool seatGuardOver;
+
+        void SeatColliders(List<Collider> into)
+        {
+            standIns.RemoveAll(g => g == null);
+            foreach (var g in standIns)
+                foreach (var c in g.GetComponentsInChildren<Collider>(true)) if (c != null && !c.isTrigger) into.Add(c);
+            ModuleEjectionSeatPart.Live.RemoveWhere(m => m == null);
+            foreach (var m in ModuleEjectionSeatPart.Live)
+                if (m.part != null)
+                    foreach (var c in m.part.GetComponentsInChildren<Collider>(true)) if (c != null && !c.isTrigger) into.Add(c);
+        }
+
+        void GuardSeats()
+        {
+            if (seatGuardOver || eva == null) return;
+            bool over = separatedAt >= 0f && Time.time - separatedAt >= SeatNoCollideAfter;
+            var seats = new List<Collider>();
+            SeatColliders(seats);
+            if (seats.Count == 0) { if (over) seatGuardOver = true; return; }
+            var mine = eva.GetComponentsInChildren<Collider>(false);
+            foreach (var s in seats)
+                foreach (var k in mine)
+                {
+                    if (k == null || s == k || !k.enabled || !s.enabled || !s.gameObject.activeInHierarchy) continue;   // switched-off colliders can't be paired (and can't collide)
+                    // when the time is up, collisions come back only where the two are clear of each other
+                    bool keepApart = !over || (s.enabled && k.enabled && s.bounds.Intersects(k.bounds));
+                    Physics.IgnoreCollision(k, s, keepApart);
+                }
+            if (over) { seatGuardOver = true; Log.Dbg("seat collisions restored for " + (eva.vessel != null ? eva.vessel.vesselName : "kerbal")); }
         }
 
         /// <summary>Crew leaving side by side must not knock each other around inside the cockpit.</summary>
@@ -299,6 +338,7 @@ namespace EjectionSeats
         void OnDestroy()
         {
             running.Remove(this);
+            RemoveCutEvent();
             ShowGear();
             if (poser != null) Destroy(poser);
             // never leave a kerbal without its controller
@@ -802,11 +842,12 @@ namespace EjectionSeats
                 yield break;
             }
             DeployChute();
+            AddCutEvent();
             if (poser != null) { poser.chute = chute; poser.mode = KerbalPoser.Mode.Chute; }
             float mass = rb.mass;
             float cdA = (float)(2.0 * mass * 1000.0 * 9.81 / (1.225 * S.chuteDescentRate * S.chuteDescentRate));
             float settled = 0f;
-            bool handedOver = false;
+            handedOver = false;
             float sinceHandover = 0f;
             while (true)
             {
@@ -814,6 +855,18 @@ namespace EjectionSeats
                 sinceStart += dt;
                 CheckClearance();
                 if (eva == null || vsl == null) yield break;
+                if (cutRequested)
+                {
+                    // chute cut by the player: the kerbal is on their own (and can still open their own EVA chute)
+                    Phase = "freefall";
+                    RemoveCutEvent();
+                    if (chute != null) chute.Cut();
+                    chute = null;
+                    if (poser != null) { poser.chute = null; poser.mode = KerbalPoser.Mode.None; }
+                    Log.Info(vsl.vesselName + " cut away the ejection seat parachute");
+                    Finish();
+                    yield break;
+                }
                 float agl = AGL(vsl);
 
                 // touchdown: the chute goes away the instant the kerbal touches ground or water
@@ -864,6 +917,7 @@ namespace EjectionSeats
             // ---- 7. touchdown: chute removed immediately ----
 
             Phase = "landed";
+            RemoveCutEvent();
             if (chute != null) Destroy(chute.gameObject);
             chute = null;
             if (!handedOver) Play(S.animLanded, 0.4f);
@@ -916,6 +970,8 @@ namespace EjectionSeats
             col.size = new Vector3(0.5f, 1.0f, 0.45f) * S.seatScale;
             foreach (var kc in eva.GetComponentsInChildren<Collider>(true)) if (kc != null) Physics.IgnoreCollision(col, kc, true);
             foreach (var vc in vesselColliders) if (vc != null) Physics.IgnoreCollision(col, vc, true);
+            // and switched off outright until the kerbal is clear (the real seat part takes the same over)
+            SeatNoCollide.Apply(seat, Time.time + SeatPartHandoff.NoCollideTime);
 
             Rigidbody srb = EjectionDebris.MakePhysical(seat, eva.part, 0.06f, S.seatLifetime, 0.25f);
             srb.velocity = vel - fwd * 2.5f - up * 1.2f;
@@ -932,6 +988,9 @@ namespace EjectionSeats
 
             Burst.Smoke(seat.transform.position, -fwd, 10, 0.2f, 1.5f, 0.8f, new Color(0.8f, 0.8f, 0.8f, 0.6f));
             Burst.Sound(S.canopySound, transform.position, 0.35f);
+            standIns.Add(seat);
+            separatedAt = Time.time;
+            GuardSeats();
             seat = null;
         }
 
@@ -952,6 +1011,50 @@ namespace EjectionSeats
             Burst.Smoke(transform.TransformPoint(S.chuteRiserPoint), transform.up, 8, 0.15f, 1f, 0.6f, new Color(0.9f, 0.9f, 0.88f, 0.5f));
             Play(S.animChute, 0.6f);
         }
+
+        // ---- cutting the seat parachute away (right-click the kerbal) ----
+        bool cutRequested, handedOver;
+        BaseEvent cutEvent;
+        const string CutEventName = "EjectionSeatCutChute";
+
+        void AddCutEvent()
+        {
+            if (eva == null || eva.part == null || cutEvent != null) return;
+            try
+            {
+                var attr = new KSPEvent
+                {
+                    guiName = "Cut parachute",
+                    guiActive = true,
+                    guiActiveUncommand = true,
+                    guiActiveUnfocused = true,
+                    unfocusedRange = 500f,
+                    externalToEVAOnly = false,
+                    active = true,
+                };
+                cutEvent = new BaseEvent(eva.part.Events, CutEventName, new BaseEventDelegate(RequestCut), attr);
+                eva.part.Events.Add(cutEvent);
+                if (eva.vessel == FlightGlobals.ActiveVessel)
+                    ScreenMessages.PostScreenMessage("Parachute open. Right-click " + eva.vessel.vesselName + " to cut it away.", 5f);
+            }
+            catch (Exception e) { Log.Warn("could not add the cut-parachute button: " + e.Message); cutEvent = null; }
+        }
+
+        void RemoveCutEvent()
+        {
+            if (cutEvent == null) return;
+            try
+            {
+                cutEvent.active = false;
+                cutEvent.guiActive = false;
+                if (eva != null && eva.part != null) eva.part.Events.Remove(cutEvent);
+            }
+            catch (Exception e) { Log.Dbg("remove cut event: " + e.Message); }
+            cutEvent = null;
+        }
+
+        // right-click only: no keybind, so it can never clash with KSP's or another mod's keys
+        void RequestCut() { if (Phase == "chute" && chute != null) cutRequested = true; }
 
         static float AGL(Vessel v)
         {

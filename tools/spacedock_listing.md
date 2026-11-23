@@ -33,7 +33,9 @@ each kerbal should leave, finds the canopy and plans a clear path out of the cra
 * Adjustable ejection force (5–50 g), burn time, pitch and yaw angle, parachute delay and opening time.
 * The canopy blows off, or a hole is cut through the hull, and the cockpit interior stays visible afterwards.
 * The kerbal straps in, rides the catapult rail and rocket, separates from the seat and opens a parachute.
-* Layered rocket flames and a thick solid-rocket smoke trail.
+* The parachute can be cut away from the kerbal's right-click menu.
+* Solid-rocket flames and thick smoke trails modelled on real seat tests, with a plume of their own for every seat.
+  Plumes can be retuned with EJECTION_PLUME configs in `GameData/EjectionSeats/Plumes`.
 * The spent seat becomes a real part with leftover SolidFuel, so it breaks up when it hits the ground.
 * Parachutes use the stock canopy models, so parachute retextures apply to them.
 

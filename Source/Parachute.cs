@@ -484,6 +484,20 @@ namespace EjectionSeats
             Destroy(gameObject, 0.9f);
         }
 
+        bool cut;
+
+        /// <summary>Released from the kerbal: the canopy stays up in the air, spills and streams away.</summary>
+        public void Cut()
+        {
+            if (collapsing) return;
+            cut = true;
+            collapsing = true;
+            collapseT = 0f;
+            kerbal = null;
+            attach = null;
+            Destroy(gameObject, 6f);
+        }
+
         void LateUpdate()
         {
             if (canopy == null) return;
@@ -491,6 +505,20 @@ namespace EjectionSeats
             Quaternion want = Quaternion.FromToRotation(Vector3.up, targetUp.normalized);
             if (!init) { smoothedRot = want; init = true; }
 
+            if (collapsing && cut)
+            {
+                // released canopy: spills its air and trails out into a long streamer, drifting on the wind
+                collapseT += dt;
+                float k = Mathf.Clamp01(collapseT / 2.5f);
+                float e = 1f - (1f - k) * (1f - k);
+                canopy.localScale = new Vector3(Mathf.Lerp(1f, 0.18f, e), Mathf.Lerp(1f, 1.7f, e), Mathf.Lerp(1f, 0.18f, e));
+                smoothedRot = Quaternion.Slerp(smoothedRot, want, dt * 1.5f);
+                transform.rotation = smoothedRot * Quaternion.Euler(Mathf.Sin(collapseT * 5f) * 10f, collapseT * 40f, 0f);
+                transform.position += Vector3.Normalize(-targetUp) * dt * 1.5f;
+                OpenFraction = 0f;
+                UpdateLines();
+                return;
+            }
             if (collapsing)
             {
                 // quick deflate & sink, then the object is gone
