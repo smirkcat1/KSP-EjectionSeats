@@ -16,8 +16,8 @@ Fill in the SpaceDock "Create a new mod" form with the text below, then upload t
 
 **Long description:**
 
-Ejection seats are something you add to a cockpit, not a part you attach. Any crewed command part, stock or
-modded, gets an **Ejection Seats** section in its right-click menu in the VAB/SPH. Install the seats and an
+Ejection seats are something you add to a cockpit, not a part you attach. Any crewed part (cockpits, pods and
+crew cabins), stock or modded, gets an **Ejection Seats** section in its right-click menu in the VAB/SPH. Install the seats and an
 **Eject crew** action goes into your Abort group.
 
 There are no per-part configs. For every cockpit the mod finds the crew seats from the IVA, works out which way

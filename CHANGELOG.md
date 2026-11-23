@@ -5,6 +5,8 @@
 * Fixed the ejection seat (and the kerbal in it) starting about 20 cm below the cockpit's own seat. The kerbal now
   starts exactly where they were sitting in the IVA, in any cockpit.
 * The jettisoned canopy no longer has its cabin lights on.
+* Ejection seats can now be installed in crew cabins too (Mk1 Crew Cabin, Mk3 Passenger Module and the like),
+  not just cockpits and command pods.
 
 ## 1.1.0
 
