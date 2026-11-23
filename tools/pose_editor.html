@@ -40,7 +40,7 @@ code { background: rgba(127,127,127,0.15); padding: 1px 5px; border-radius: 4px;
 </header>
 <div class="bar">
   <label>Pose <select id="pose"></select></label>
-  <label><input type="checkbox" id="sym" checked> Symmetry</label>
+  <label title="Two-handed poses mirror left and right; the He 162 and He 219 poses mirror each other"><input type="checkbox" id="sym" checked> Symmetry</label>
   <label><input type="checkbox" id="ghost"> See-through body</label>
   <button id="front">Front</button><button id="side">Side</button>
   <button id="reset">Reset this pose</button>
@@ -298,8 +298,8 @@ function solveArm(side, arm) {
 const POSES = {
   sides:   { title: 'Side handles (ACES II, KM-1)', sym: true, handles: [[-0.128, -0.075, 0.0], [0.128, -0.075, 0.0]] },
   pan:     { title: 'Loop at the knees (US16E, K-36D, Martin-Baker)', sym: true, handles: [[0, -0.03, 0.03]] },
-  lever_r: { title: 'Lever on the right (He 162)', sym: false, handles: [[0.128, -0.075, 0.0]] },
-  lever_l: { title: 'Lever on the left (He 219)', sym: false, handles: [[-0.128, -0.075, 0.0]] },
+  lever_r: { title: 'Lever on the right (He 162)', sym: false, mirrorOf: 'lever_l', handles: [[0.128, -0.075, 0.0]] },
+  lever_l: { title: 'Lever on the left (He 219)', sym: false, mirrorOf: 'lever_r', handles: [[-0.128, -0.075, 0.0]] },
 };
 function norm3(a) { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; }
 function mirrorArm(a) { return { wrist: mirror(a.wrist), hand: mirror(a.hand), pole: mirror(a.pole) }; }
@@ -320,7 +320,7 @@ const poseSel = document.getElementById('pose'), symBox = document.getElementByI
 for (const k in POSES) { const o = document.createElement('option'); o.value = k; o.textContent = POSES[k].title; poseSel.appendChild(o); }
 const cur = () => data[poseSel.value];
 const symmetric = () => symBox.checked && POSES[poseSel.value].sym;
-poseSel.onchange = () => { symBox.checked = POSES[poseSel.value].sym; update(); };
+poseSel.onchange = update;
 symBox.onchange = update;
 document.getElementById('ghost').onchange = (e) => {
   for (const m of materials) { const a = e.target.checked ? Math.min(m.userData.alpha, 0.35) : m.userData.alpha; m.transparent = a < 1; m.opacity = a; m.depthWrite = a >= 1; m.needsUpdate = true; }
@@ -344,9 +344,16 @@ badMarks.L.renderOrder = badMarks.R.renderOrder = 8;
 rig.add(badMarks.L, badMarks.R);
 
 let solved = { L: null, R: null };
+// the two lever seats are mirror images of each other
+function syncMirrorPose(k) {
+  const other = POSES[k].mirrorOf;
+  if (!symBox.checked || !other) return;
+  data[other] = { L: mirrorArm(data[k].R), R: mirrorArm(data[k].L) };
+}
 function update() {
   const c = cur();
   if (symmetric()) c.R = mirrorArm(c.L);
+  syncMirrorPose(poseSel.value);
   resetPose(); brace();
   for (const s of ['L', 'R']) {
     // with symmetry on, the right arm is the exact mirror of the solved left arm
@@ -481,9 +488,8 @@ document.getElementById('reset').onclick = () => { data[poseSel.value] = default
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
 
 buildObstacles();
-symBox.checked = POSES[poseSel.value].sym;
 resize(); view('front'); update();
-window.__poseEditor = { exportData, setPose: (p) => { poseSel.value = p; symBox.checked = POSES[p].sym; update(); }, view };
+window.__poseEditor = { exportData, setPose: (p) => { poseSel.value = p; update(); }, view };
 })();
 </script>
 </body>
