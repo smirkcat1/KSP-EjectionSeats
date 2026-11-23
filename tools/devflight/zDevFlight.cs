@@ -88,6 +88,8 @@ namespace zDevFlight
             W("before eject speed=" + v.srfSpeed.ToString("F0") + " alt=" + v.altitude.ToString("F0") + " seat=" + m.seatVariant);
             m.Eject();
             StartCoroutine(Hold(cockpit));
+            float kill = Cfg.F("kill", -1f);
+            if (kill >= 0f) StartCoroutine(Kill(cockpit, kill));
             bool wantDump = Cfg.F("dump", 0f) > 0f;
             W("dump requested: " + wantDump + " (" + Cfg.S("dump", "-") + ")");
 
@@ -121,7 +123,7 @@ namespace zDevFlight
                 if (shot < shots.Length && t >= shots[shot])
                 {
                     ScreenCapture.CaptureScreenshot(Path.Combine(Cfg.Dir, "shot" + shot + "_" + shots[shot].ToString("F1", CultureInfo.InvariantCulture) + ".png"));
-                    W("shot " + shot + " t=" + t.ToString("F2") + " phase=" + (seq != null ? seq.Phase : "?"));
+                    W("shot " + shot + " t=" + t.ToString("F2") + " phase=" + (seq != null ? seq.Phase : "?") + " kerbal=" + (seq != null && seq.eva != null ? "alive" : "gone"));
                     shot++;
                 }
                 yield return null;
@@ -308,6 +310,12 @@ namespace zDevFlight
             }
             v.ChangeWorldVelocity((Vector3d)(fwd * speed) - v.srf_velocity);
             foreach (var p in v.parts) if (p.rb != null) p.rb.angularVelocity = Vector3.zero;
+        }
+
+        IEnumerator Kill(Part p, float after)
+        {
+            yield return new WaitForSeconds(after);
+            if (p != null) { W("destroying the cockpit at t=" + after); p.explode(); }
         }
 
         IEnumerator Hold(Part p)

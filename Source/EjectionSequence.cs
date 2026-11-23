@@ -22,6 +22,7 @@ namespace EjectionSeats
         public float railLength;
         public float chuteDelay;
         public float chuteOpenTime = 2f;
+        public float startDelay;    // time strapped in before the seat fires (canopy jettison, seat order)
         public string chuteType = "auto";   // auto | seat | eva
         public Vector3 localStart, localDir, localFwd;   // in cockpit space
         public List<Collider> vesselColliders = new List<Collider>();
@@ -284,6 +285,7 @@ namespace EjectionSeats
         void OnDestroy()
         {
             running.Remove(this);
+            ShowGear();
             if (poser != null) Destroy(poser);
             // never leave a kerbal without its controller
             if (eva != null && !eva.enabled) eva.enabled = true;
@@ -457,6 +459,8 @@ namespace EjectionSeats
                 else return false;
 
                 float backZ = pack != null ? transform.InverseTransformPoint(pack.position).z - S.packHalfDepth : pl.z - 0.15f;
+                float suitBack;
+                if (TrySuitBack(pl.y, out suitBack)) backZ = suitBack;   // the pack is hidden in the seat
                 // back-cushion front face in seat units (see SeatModel): z ~ -0.19 at hip height
                 float cushionFront = -0.19f * S.seatScale;
                 offset = new Vector3(0f, pl.y - S.pelvisAboveCushion, backZ - cushionFront);
@@ -473,6 +477,35 @@ namespace EjectionSeats
                 st.enabled = wasEnabled; st.weight = wasWeight; st.time = wasTime;
                 foreach (var kv in others) if (kv.Key != null) kv.Key.weight = kv.Value;
             }
+        }
+
+        /// <summary>Rearmost point of the suit (not the pack) at lower-back height, in the kerbal's frame.</summary>
+        bool TrySuitBack(float pelvisY, out float back)
+        {
+            back = 0f;
+            bool any = false;
+            var tmp = new Mesh();
+            try
+            {
+                foreach (var smr in eva.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+                {
+                    if (smr == null || smr.sharedMesh == null || !smr.gameObject.activeInHierarchy || IsGear(smr.transform)) continue;
+                    if (!smr.name.ToLowerInvariant().Contains("body")) continue;
+                    smr.BakeMesh(tmp);
+                    Matrix4x4 m = transform.worldToLocalMatrix * Matrix4x4.TRS(smr.transform.position, smr.transform.rotation, Vector3.one);
+                    foreach (var v in tmp.vertices)
+                    {
+                        Vector3 k = m.MultiplyPoint3x4(v);
+                        if (k.y < pelvisY + 0.02f || k.y > pelvisY + 0.16f || Mathf.Abs(k.x) > 0.06f) continue;
+                        if (!any || k.z < back) back = k.z;
+                        any = true;
+                    }
+                }
+            }
+            catch (Exception e) { Log.Dbg("suit back: " + e.Message); any = false; }
+            finally { Destroy(tmp); }
+            if (any) Log.Dbg("seat fit: suit back z=" + back.ToString("F3"));
+            return any;
         }
 
         void IgnoreVessel(bool ignore)
@@ -584,6 +617,7 @@ namespace EjectionSeats
             if (S.autoFitKerbal && TryFitSeat(out fit)) seatOffset = fit + S.kerbalFitAdjust;
             seat.transform.localPosition = seatOffset;
             fx = SeatRocketFX.Create(seat, model.nozzles, S, variant);
+            HideGear();
             try { interiorMirror = SeatInteriorMirror.Create(cockpit, eva, seat, variant, S); }
             catch (Exception e) { Log.Dbg("interior mirror failed: " + e.Message); }
 
@@ -596,8 +630,10 @@ namespace EjectionSeats
             Play(S.animSeated, 0f);
             Vector3 liftLocal = new Vector3(0f, 0.035f, 0.02f);
             float t = 0f;
-            while (t < S.sitDownTime)
+            while (t < Mathf.Max(S.sitDownTime, startDelay))
             {
+                // the cockpit was destroyed while waiting (e.g. hitting the ground): fire straight away
+                if (!CockpitAlive) { Log.Info("cockpit lost before the seat fired - firing now"); break; }
                 float dt = Time.fixedDeltaTime;
                 t += dt;
                 float k = Mathf.Clamp01(t / S.sitDownTime);
@@ -795,8 +831,42 @@ namespace EjectionSeats
             Finish();
         }
 
+        // ---- EVA gear (jetpack, parachute pack, backpacks) is hidden while strapped in ----
+        readonly List<Renderer> hiddenGear = new List<Renderer>();
+        static readonly HashSet<string> GearRoots = new HashSet<string> { "jetpack01", "model", "EVABackpack", "EVAStorage", "EVAStorageSlim", "EVABackpack_standalone" };
+
+        bool IsGear(Transform t)
+        {
+            for (; t != null && t != eva.transform; t = t.parent)
+            {
+                if (GearRoots.Contains(t.name)) return true;
+                string n = t.name.ToLowerInvariant();
+                if (n.Contains("jetpack") || n.Contains("backpack") || n.Contains("parachute") || n.Contains("chute")) return true;
+            }
+            return false;
+        }
+
+        void HideGear()
+        {
+            if (eva == null) return;
+            foreach (var r in eva.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r == null || !r.enabled || r.GetComponentInParent<EjectionGenerated>() != null || !IsGear(r.transform)) continue;
+                r.enabled = false;
+                hiddenGear.Add(r);
+            }
+            Log.Dbg("gear hidden: " + hiddenGear.Count + " renderers");
+        }
+
+        void ShowGear()
+        {
+            foreach (var r in hiddenGear) if (r != null) r.enabled = true;
+            hiddenGear.Clear();
+        }
+
         void Separate()
         {
+            ShowGear();
             if (seat == null) return;
             Vector3 vel = rb.velocity;
             Vector3 up = transform.up, fwd = transform.forward, right = transform.right;
@@ -914,9 +984,9 @@ namespace EjectionSeats
             }
             try { m.ApplyCabinDamage(plan); }
             catch (Exception e) { Log.Warn("Cabin damage failed: " + e.Message); }
-            yield return new WaitForSeconds(S.prepTime);
-
-            // ---- seats, one after another ----
+            // ---- seats ----
+            // Every kerbal leaves the crew list straight away and waits strapped into their seat (so a cockpit
+            // destroyed in the next moments can't take them with it); the seats then fire one after another.
             var crew = new List<ProtoCrewMember>(part.protoModuleCrew);
             var ejected = new List<KerbalEVA>();
             int seatCursor = 0;
@@ -961,9 +1031,9 @@ namespace EjectionSeats
                 seq.localDir = localDir;
                 seq.localFwd = localFwd;
                 seq.vesselColliders = vesselColliders;
+                seq.startDelay = S.sitDownTime + S.prepTime + ejected.Count * S.sequenceInterval;
                 ejected.Add(eva);
-
-                yield return new WaitForSeconds(S.sequenceInterval);
+                yield return null;
             }
             if (m != null) { m.expended = ejected.Count > 0 || m.expended; m.ejectionInProgress = false; m.RefreshUI(); }
 
