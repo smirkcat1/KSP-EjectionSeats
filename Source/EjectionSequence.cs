@@ -564,7 +564,7 @@ namespace EjectionSeats
             // take over from the EVA state machine while we drive the kerbal
             eva.enabled = false;
             anim = eva.GetComponentInChildren<Animation>();
-            if (S.kerbalPoses) poser = KerbalPoser.Attach(eva, KerbalPoser.GripFor(variant != null ? variant.id : ""));
+            if (S.kerbalPoses) poser = KerbalPoser.Attach(eva);
             if (S.debug && anim != null)
             {
                 var names = new List<string>();
@@ -590,7 +590,6 @@ namespace EjectionSeats
             // ---- 1. sit down / brace ----
 
             Phase = "sit";
-            if (poser != null) poser.mode = KerbalPoser.Mode.Brace;
             // kerbal starts a little above and ahead of the seat cushion and settles in; the seat itself
             // stays fixed in the cockpit (its local offset counter-moves the kerbal's lift)
             // seated from the first frame (they were sitting in the cockpit); just a small settle into the cushion
@@ -620,6 +619,7 @@ namespace EjectionSeats
             // ---- 2. catapult rail ----
 
             Phase = "rail";
+            if (poser != null) poser.mode = KerbalPoser.Mode.Brace;   // the ejecting pose, from the moment the seat fires
             Vector3 seatBase = seat.transform.position;
             Burst.Smoke(seatBase, -transform.up, 25, 0.35f, 4f, 1.2f, new Color(0.85f, 0.85f, 0.85f, 0.8f));
             Burst.Flash(seatBase, 5f, 0.25f);

@@ -15,7 +15,6 @@ namespace EjectionSeats
         public enum Mode { None, Brace, Freefall, Chute }
 
         public Mode mode = Mode.None;
-        public string grip = "pan";        // pan | sides | overhead | lever_r | lever_l
         public ChuteRig chute;
 
         class Limb { public Transform upper, mid, end, tip, thumb; public float side; }
@@ -32,25 +31,11 @@ namespace EjectionSeats
         Mode lastMode = Mode.None;
         float seed;
 
-        public static KerbalPoser Attach(KerbalEVA eva, string grip)
+        public static KerbalPoser Attach(KerbalEVA eva)
         {
             if (eva == null) return null;
             var p = eva.gameObject.GetComponent<KerbalPoser>() ?? eva.gameObject.AddComponent<KerbalPoser>();
-            p.grip = string.IsNullOrEmpty(grip) ? "pan" : grip;
             return p;
-        }
-
-        /// <summary>Which firing handle each seat has, in the way a kerbal can reach it.</summary>
-        public static string GripFor(string variantId)
-        {
-            switch (variantId)
-            {
-                case "modern":
-                case "km1": return "sides";         // handles on both sides of the seat pan
-                case "ww2": return "lever_r";       // Heinkel firing lever
-                case "he219": return "lever_l";
-                default: return "pan";              // loop between the knees
-            }
         }
 
         void Awake()
@@ -105,38 +90,23 @@ namespace EjectionSeats
         }
 
         // ------------------------------------------------------------------ poses
+        // the ejecting pose, right arm (the left is its mirror): wrist, elbow pole and hand direction
+        static readonly Vector3 PoseWrist = new Vector3(0.05f, 0.03f, 0f);
+        static readonly Vector3 PoseElbow = new Vector3(0.1388f, 0.0277f, -0.0131f);
+        static readonly Vector3 PoseHand = new Vector3(0f, -0.4819f, 0.8762f);
+
         void Brace(float w)
         {
             // straight back against the seat, chin slightly down (head pressed to the headrest)
             Turn(spine, transform.right, -6f * w);
             Turn(neck, transform.right, 5f * w);
 
-            // Targets are wrist positions; each hand is then aimed so it lies on the leg or hangs beside the seat
-            // instead of pushing into the suit. Kerbal arms are short (about 0.17 m to the wrist).
-            Vector3 lT, rT, lPole, rPole, lHand, rHand;
-            const float p = 1f;   // one pose: hands on the handle, pulling it
-            Vector3 down = KD(0f, -1f, 0.15f), onKnee = KD(0f, -0.55f, 1f);
-            switch (grip)
-            {
-                case "sides":      // a handle each side of the seat pan, outside the thighs, pulled up
-                    lT = K(-0.128f, -0.06f + 0.03f * p, 0f); rT = K(0.128f, -0.06f + 0.03f * p, 0f);
-                    lPole = K(-0.35f, 0f, -0.25f); rPole = K(0.35f, 0f, -0.25f);
-                    lHand = down; rHand = down;
-                    break;
-                case "lever_r":    // right hand on the lever beside the seat, pulled back; left hand resting on the thigh
-                    rT = K(0.128f, -0.06f + 0.015f * p, -0.04f * p); rPole = K(0.35f, 0f, -0.25f); rHand = down;
-                    lT = K(-0.05f, 0.0f, -0.03f); lPole = K(-0.35f, -0.05f, -0.1f); lHand = onKnee;
-                    break;
-                case "lever_l":
-                    lT = K(-0.128f, -0.06f + 0.015f * p, -0.04f * p); lPole = K(-0.35f, 0f, -0.25f); lHand = down;
-                    rT = K(0.05f, 0.0f, -0.03f); rPole = K(0.35f, -0.05f, -0.1f); rHand = onKnee;
-                    break;
-                default:           // loop at the knees: hands together on top of the knees, pulled up towards the chest
-                    lT = K(-0.04f, -0.005f + 0.025f * p, -0.005f - 0.015f * p); rT = K(0.04f, -0.005f + 0.025f * p, -0.005f - 0.015f * p);
-                    lPole = K(-0.35f, -0.05f, -0.1f); rPole = K(0.35f, -0.05f, -0.1f);
-                    lHand = onKnee; rHand = onKnee;
-                    break;
-            }
+            // One ejecting pose for every seat (set in tools/pose_editor.html), mirrored left/right. Targets are
+            // wrist positions in the kerbal's frame; the elbow bends towards the pole point, and each hand is then
+            // aimed and twisted so it doesn't push into the suit.
+            Vector3 lT = K(-PoseWrist.x, PoseWrist.y, PoseWrist.z), rT = K(PoseWrist.x, PoseWrist.y, PoseWrist.z);
+            Vector3 lPole = K(-PoseElbow.x, PoseElbow.y, PoseElbow.z), rPole = K(PoseElbow.x, PoseElbow.y, PoseElbow.z);
+            Vector3 lHand = KD(-PoseHand.x, PoseHand.y, PoseHand.z), rHand = KD(PoseHand.x, PoseHand.y, PoseHand.z);
             Solve(armL, lT, lPole, w);
             Solve(armR, rT, rPole, w);
             AimHand(armL, lHand, w);

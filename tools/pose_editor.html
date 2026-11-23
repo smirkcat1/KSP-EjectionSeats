@@ -36,10 +36,11 @@ code { background: rgba(127,127,127,0.15); padding: 1px 5px; border-radius: 4px;
   <h1>Ejection pose editor</h1>
   <p>Drag the big dots (wrists) and the small dots (hand tips). Drag empty space to orbit, right-drag to pan,
      scroll to zoom. Elbows and hands take the way round that stays clear of the kerbal and the seat; anything
-     still clipping is marked red. The pose is the moment the kerbal pulls the handle. Save the file and send it over.</p>
+     still clipping is marked red. This is the kerbal riding the seat out, after the handle has been pulled; it is
+     used for every seat. Save the file and send it over.</p>
 </header>
 <div class="bar">
-  <label>Pose <select id="pose"></select></label>
+  <select id="pose" hidden></select>
   <label title="Two-handed poses mirror left and right; the He 162 and He 219 poses mirror each other"><input type="checkbox" id="sym" checked> Symmetry</label>
   <label><input type="checkbox" id="ghost"> See-through body</label>
   <button id="front">Front</button><button id="side">Side</button>
@@ -49,7 +50,7 @@ code { background: rgba(127,127,127,0.15); padding: 1px 5px; border-radius: 4px;
   <input type="file" id="file" accept=".json,application/json" hidden>
 </div>
 <div class="status" id="status">Loading…</div>
-<div id="stage"><div class="hint">Blue = left arm, orange = right arm, yellow ring = the seat's handle</div></div>
+<div id="stage"><div class="hint">Blue = left arm, orange = right arm</div></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -296,23 +297,13 @@ function solveArm(side, arm) {
 
 // ---------------------------------------------------------------- poses
 const POSES = {
-  sides:   { title: 'Side handles (ACES II, KM-1)', sym: true, handles: [[-0.128, -0.075, 0.0], [0.128, -0.075, 0.0]] },
-  pan:     { title: 'Loop at the knees (US16E, K-36D, Martin-Baker)', sym: true, handles: [[0, -0.03, 0.03]] },
-  lever_r: { title: 'Lever on the right (He 162)', sym: false, mirrorOf: 'lever_l', handles: [[0.128, -0.075, 0.0]] },
-  lever_l: { title: 'Lever on the left (He 219)', sym: false, mirrorOf: 'lever_r', handles: [[-0.128, -0.075, 0.0]] },
+  eject: { title: 'Ejecting', sym: true, handles: [] },
 };
 function norm3(a) { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; }
 function mirrorArm(a) { return { wrist: mirror(a.wrist), hand: mirror(a.hand), pole: mirror(a.pole) }; }
 function defaults() {
-  const down = norm3([0, -1, 0.15]), onKnee = norm3([0, -0.55, 1]);
-  const mk = (w, hand, pole) => ({ wrist: w, hand, pole });
-  const d = {
-    sides: { L: mk([-0.128, -0.03, 0], down, [-0.35, 0, -0.25]) },
-    pan: { L: mk([-0.04, 0.02, -0.02], onKnee, [-0.35, -0.05, -0.1]) },
-    lever_r: { R: mk([0.128, -0.045, -0.04], down, [0.35, 0, -0.25]), L: mk([-0.05, 0, -0.03], onKnee, [-0.35, -0.05, -0.1]) },
-    lever_l: { L: mk([-0.128, -0.045, -0.04], down, [-0.35, 0, -0.25]), R: mk([0.05, 0, -0.03], onKnee, [0.35, -0.05, -0.1]) },
-  };
-  for (const k of ['sides', 'pan']) d[k].R = mirrorArm(d[k].L);
+  const d = { eject: { L: { wrist: [-0.05, 0.03, 0], hand: [0, -0.4819, 0.8762], pole: [-0.1388, 0.0277, -0.0131] } } };
+  d.eject.R = mirrorArm(d.eject.L);
   return d;
 }
 let data = defaults();
@@ -449,7 +440,7 @@ function render() {
 
 // ---------------------------------------------------------------- file
 function exportData() {
-  const out = { format: 'EjectionSeats.poses', version: 2, kerbal: M.kerbal,
+  const out = { format: 'EjectionSeats.poses', version: 3, kerbal: M.kerbal,
     units: 'metres in the kerbal frame: x right, y up, z forward (seated EVA kerbal)', poses: {} };
   for (const k in POSES) {
     out.poses[k] = {};
@@ -469,9 +460,11 @@ function exportData() {
 function importData(obj) {
   if (!obj || obj.format !== 'EjectionSeats.poses') throw new Error('not a pose file');
   const d = defaults();
-  for (const k in obj.poses) if (d[k]) for (const s of ['L', 'R']) {
-    const p = obj.poses[k], a = p[s] || (p.pulled && p.pulled[s]);   // version 1 files had rest/pulled
-    if (a) d[k][s] = { wrist: a.wrist, hand: a.handDir, pole: a.elbow };
+  // older files had one pose per seat handle; the knee-loop one is the closest to the ejecting pose
+  const p = obj.poses.eject || obj.poses.pan || Object.values(obj.poses)[0];
+  if (p) for (const s of ['L', 'R']) {
+    const a = p[s] || (p.pulled && p.pulled[s]);
+    if (a) d.eject[s] = { wrist: a.wrist, hand: a.handDir, pole: a.elbow };
   }
   data = d; update();
 }document.getElementById('save').onclick = () => {
