@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.0
+
+* Kerbals now ride the seat in a braced ejecting pose, with the arms solved so the hands stay clear of the body.
+  Under the canopy they use KSP's own parachute animations: braking while it opens, then hanging and looking
+  round.
+* The jetpack, parachute pack and backpacks are hidden while the kerbal is in the seat, and the seat is fitted to
+  the suit's back.
+* Crew leave the cockpit the moment Eject is pressed and wait strapped into their seats. A cockpit destroyed during
+  the canopy jettison (for example ejecting just before hitting the ground) no longer takes them with it; the
+  seats fire straight away instead.
+* Kerbals are seated from the first moment of the ejection instead of briefly standing up in the seat.
+* New setting `kerbalPoses` to turn the poses off.
+
 ## 1.0.0 (first release)
 
 * Ejection seats for any crewed command part from any mod, added from the part's right-click menu in the
