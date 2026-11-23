@@ -616,12 +616,15 @@ namespace EjectionSeats
         /// </summary>
         public static int CutTriangles(MeshFilter mf, Vector3 inside, Func<Vector3, Vector3, Vector3, Vector3, bool> remove, Transform debrisRoot)
         {
-            return CutTriangles(mf, inside, remove, debrisRoot, null);
+            return CutTriangles(mf, inside, (a, b, c, n) => remove(a, b, c, n) ? 1 : 0, null, debrisRoot, null);
         }
 
         /// <param name="glassMaterial">If set, removed triangles painted as glass get this material on the debris
         /// (see-through canopy glass); the rest keep the hull's materials.</param>
-        public static int CutTriangles(MeshFilter mf, Vector3 inside, Func<Vector3, Vector3, Vector3, Vector3, bool> remove, Transform debrisRoot, Material glassMaterial)
+        /// <param name="classify">0 keep, 1 remove, 2 edge: split into small pieces and ask <paramref name="piece"/>
+        /// (world centre, outward normal, material, uv) about each.</param>
+        public static int CutTriangles(MeshFilter mf, Vector3 inside, Func<Vector3, Vector3, Vector3, Vector3, int> classify,
+                                       Func<Vector3, Vector3, Material, Vector2, bool> piece, Transform debrisRoot, Material glassMaterial)
         {
             Mesh src = mf.sharedMesh;
             var rend = mf.GetComponent<Renderer>();
@@ -653,7 +656,44 @@ namespace EjectionSeats
                     Vector3 a = l2w.MultiplyPoint3x4(pv[t[i]]), b = l2w.MultiplyPoint3x4(pv[t[i + 1]]), c = l2w.MultiplyPoint3x4(pv[t[i + 2]]);
                     Vector3 n = Vector3.Cross(b - a, c - a);
                     if (n.sqrMagnitude > 1e-12f) { n.Normalize(); if (Vector3.Dot(n, (a + b + c) / 3f - inside) < 0f) n = -n; }
-                    if (n.sqrMagnitude > 0.5f && remove(a, b, c, n))
+                    int verdict = n.sqrMagnitude > 0.5f ? classify(a, b, c, n) : 0;
+                    if (verdict == 2 && piece != null)
+                    {
+                        // edge of the opening: split until small and follow the paint
+                        var stack = new Stack<KeyValuePair<Vx[], int>>();
+                        stack.Push(new KeyValuePair<Vx[], int>(new[] { all[t[i]], all[t[i + 1]], all[t[i + 2]] }, 0));
+                        float maxEdgeSq = 0.012f * 0.012f;
+                        while (stack.Count > 0)
+                        {
+                            var item = stack.Pop(); Vx[] v = item.Key;
+                            Vector3 pa = l2w.MultiplyPoint3x4(v[0].p), pb = l2w.MultiplyPoint3x4(v[1].p), pc = l2w.MultiplyPoint3x4(v[2].p);
+                            float e0 = (pb - pa).sqrMagnitude, e1 = (pc - pb).sqrMagnitude, e2 = (pa - pc).sqrMagnitude, em = Mathf.Max(e0, Mathf.Max(e1, e2));
+                            if (em > maxEdgeSq && item.Value < 10)
+                            {
+                                int d = item.Value + 1;
+                                if (em == e0) { Vx m = Vx.Lerp(v[0], v[1], 0.5f); stack.Push(new KeyValuePair<Vx[], int>(new[] { v[0], m, v[2] }, d)); stack.Push(new KeyValuePair<Vx[], int>(new[] { m, v[1], v[2] }, d)); }
+                                else if (em == e1) { Vx m = Vx.Lerp(v[1], v[2], 0.5f); stack.Push(new KeyValuePair<Vx[], int>(new[] { v[0], v[1], m }, d)); stack.Push(new KeyValuePair<Vx[], int>(new[] { v[0], m, v[2] }, d)); }
+                                else { Vx m = Vx.Lerp(v[2], v[0], 0.5f); stack.Push(new KeyValuePair<Vx[], int>(new[] { v[0], v[1], m }, d)); stack.Push(new KeyValuePair<Vx[], int>(new[] { m, v[1], v[2] }, d)); }
+                                continue;
+                            }
+                            Vector2 puv = (v[0].uv + v[1].uv + v[2].uv) / 3f;
+                            bool take = piece((pa + pb + pc) / 3f, n, smMat, puv);
+                            if (take)
+                            {
+                                removed++;
+                                bool isGlass = glassMaterial != null && hasUV && GlassFinder.IsGlassAt(smMat, puv);
+                                var lv = isGlass ? glassV : debV; var li = isGlass ? glassI : deb[sm];
+                                int bi = lv.Count; lv.Add(v[0]); lv.Add(v[1]); lv.Add(v[2]); li.Add(bi); li.Add(bi + 1); li.Add(bi + 2);
+                            }
+                            else
+                            {
+                                int bi = all.Count; all.Add(v[0]); all.Add(v[1]); all.Add(v[2]);
+                                keep[sm].Add(bi); keep[sm].Add(bi + 1); keep[sm].Add(bi + 2);
+                            }
+                        }
+                        continue;
+                    }
+                    if (verdict == 1)
                     {
                         removed++;
                         if (glassMaterial != null && hasUV && GlassFinder.IsGlass(smMat, uv[t[i]], uv[t[i + 1]], uv[t[i + 2]]))

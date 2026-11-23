@@ -1250,7 +1250,7 @@ namespace EjectionSeats
                 {
                     // with RealWindows the cockpit's windows are see-through, so the jettisoned canopy's are too
                     Material pane = SeatInteriorMirror.Installed && debrisRoot != null ? MatLib.CanopyGlass : null;
-                    try { HullCutter.CutTriangles(mf, inside, (a, b, c, n) => glass.Contains((a + b + c) / 3f, n), debrisRoot, pane); }
+                    try { HullCutter.CutTriangles(mf, inside, glass.Classify, glass.PieceIsCanopy, debrisRoot, pane); }
                     catch (Exception e) { Log.Warn("glass cut failed on " + mf.name + ": " + e.Message); }
                 }
                 // round hole where the glass doesn't already open the way out (or there was no glass)

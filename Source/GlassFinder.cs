@@ -31,6 +31,30 @@ namespace EjectionSeats
                 return Inside(outline, Project(centroid));
             }
 
+            /// <summary>0 = keep, 1 = canopy, 2 = on the edge of the opening (split it and decide piece by piece).</summary>
+            public int Classify(Vector3 a, Vector3 b, Vector3 c, Vector3 normal)
+            {
+                if (!found || Vector3.Dot(normal, axis) < 0.1f) return 0;
+                Vector2 pa = Project(a), pb = Project(b), pc = Project(c);
+                int inside = (Inside(outline, pa) ? 1 : 0) + (Inside(outline, pb) ? 1 : 0) + (Inside(outline, pc) ? 1 : 0);
+                if (inside == 3) return 1;
+                if (inside > 0 || Inside(outline, Project((a + b + c) / 3f))) return 2;
+                // near the outline: may carry window paint that should go with the canopy
+                if (DistanceTo(outline, pa) < 0.04f || DistanceTo(outline, pb) < 0.04f || DistanceTo(outline, pc) < 0.04f) return 2;
+                return 0;
+            }
+
+            /// <summary>For a small piece of an edge triangle: part of the canopy if it lies inside the outline and is
+            /// painted as glass or as the dark window border.</summary>
+            public bool PieceIsCanopy(Vector3 centre, Vector3 normal, Material m, Vector2 uv)
+            {
+                if (!found || Vector3.Dot(normal, axis) < 0.1f) return false;
+                Vector2 p = Project(centre);
+                if (Inside(outline, p)) return true;                       // everything inside the window outline goes
+                // just outside it: take the painted glass and dark window border too, so none is left round the hole
+                return DistanceTo(outline, p) < 0.04f && (IsGlassAt(m, uv) || Luma(m, uv) < 0.3f);
+            }
+
             /// <summary>True if the opening covers every seat's way out (so no round hole is needed as well).</summary>
             public bool Covers(List<HullCutter.Column> cols)
             {
@@ -129,6 +153,22 @@ namespace EjectionSeats
             if (gm == null) return false;
             int votes = (gm.IsGlass((u0 + u1 + u2) / 3f) ? 2 : 0) + (gm.IsGlass(u0) ? 1 : 0) + (gm.IsGlass(u1) ? 1 : 0) + (gm.IsGlass(u2) ? 1 : 0);
             return votes >= 3;
+        }
+
+        public static bool IsGlassAt(Material m, Vector2 uv)
+        {
+            GlassMap gm = MapFor(m);
+            return gm != null && gm.IsGlass(uv);
+        }
+
+        /// <summary>Brightness of the hull paint (main texture) at a point, 0-1.</summary>
+        public static float Luma(Material m, Vector2 uv)
+        {
+            if (m == null || !m.HasProperty("_MainTex")) return 1f;
+            Sampler s = Read(m.GetTexture("_MainTex"));
+            if (s == null) return 1f;
+            Color32 c = At(s, uv);
+            return (0.3f * c.r + 0.59f * c.g + 0.11f * c.b) / 255f;
         }
 
         class Tri { public Vector3 a, b, c, centre, normal; public int mesh; }
@@ -294,6 +334,18 @@ namespace EjectionSeats
             var r = new List<Vector2>(h.Count);
             foreach (var p in h) { Vector2 d = p - c; r.Add(p + (d.sqrMagnitude > 1e-8f ? d.normalized * by : Vector2.zero)); }
             return r;
+        }
+
+        static float DistanceTo(List<Vector2> h, Vector2 p)
+        {
+            float best = float.MaxValue;
+            for (int i = 0; i < h.Count; i++)
+            {
+                Vector2 a = h[i], b = h[(i + 1) % h.Count], ab = b - a;
+                float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / Mathf.Max(1e-8f, ab.sqrMagnitude));
+                best = Mathf.Min(best, (a + ab * t - p).magnitude);
+            }
+            return best;
         }
 
         static bool Inside(List<Vector2> h, Vector2 p)
