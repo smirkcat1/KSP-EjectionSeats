@@ -1239,6 +1239,7 @@ namespace EjectionSeats
                 if (glass != null) Log.Info("canopy glass: " + (glass.found ? "found, " : "not found, ") + glass.how);
             }
             bool needHole = glass == null || !glass.found || !glass.Covers(plan.columns);
+            if (glass != null && glass.found) plan.openingAxisLocal = part.transform.InverseTransformDirection(glass.axis);
             Vector3 inside = part.transform.position;
             foreach (var mf in part.FindModelComponents<MeshFilter>())
             {
@@ -1256,9 +1257,24 @@ namespace EjectionSeats
                     foreach (var w in removedPts) plan.openingLocal.Add(part.transform.InverseTransformPoint(w));
                 }
                 // round hole where the glass doesn't already open the way out (or there was no glass)
-                if (!needHole) continue;
-                try { HullCutter.Cut(mf, plan.columns, S.subdivideEdge, debrisRoot); }
-                catch (Exception e) { Log.Warn("cut failed on " + mf.name + ": " + e.Message); }
+                if (needHole)
+                {
+                    try { HullCutter.Cut(mf, plan.columns, S.subdivideEdge, debrisRoot); }
+                    catch (Exception e) { Log.Warn("cut failed on " + mf.name + ": " + e.Message); }
+                }
+            }
+
+            foreach (var mf in part.FindModelComponents<MeshFilter>())
+            {
+                if (mf == null || canopySet.Contains(mf) || mf.GetComponentInParent<EjectionGenerated>() != null) continue;
+                var r = mf.GetComponent<MeshRenderer>();
+                if (r == null || !r.enabled || !mf.gameObject.activeInHierarchy) continue;
+                // the cockpit is open now: its hull needs an inside, or you see straight through the far side
+                if (mf.sharedMesh != null && mf.sharedMesh.name.Contains("_cut"))
+                {
+                    try { HullCutter.AddInsideSurface(mf); }
+                    catch (Exception e) { Log.Dbg("inside surface failed on " + mf.name + ": " + e.Message); }
+                }
             }
         }
     }

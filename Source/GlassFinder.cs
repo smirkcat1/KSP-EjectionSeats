@@ -11,6 +11,48 @@ namespace EjectionSeats
     /// canopy is everything inside the outline of those panes (glass plus the frame between the panes).
     /// Textures are read back from the GPU, so KSP's non-readable textures work.
     /// </summary>
+    /// <summary>
+    /// The canopy's footprint seen along the escape direction: for each spot, how low the removed canopy came.
+    /// Used to take out only the interior that sat directly under it (the inner canopy frame).
+    /// </summary>
+    public class OpeningMap
+    {
+        readonly Dictionary<Vector2Int, float> low = new Dictionary<Vector2Int, float>();
+        readonly Vector3 origin, axis, u, v;
+        const float Cell = 0.04f;
+
+        public OpeningMap(IEnumerable<Vector3> removedWorld, Vector3 origin, Vector3 axis)
+        {
+            this.origin = origin; this.axis = axis.normalized;
+            u = Vector3.Cross(this.axis, Mathf.Abs(this.axis.y) < 0.9f ? Vector3.up : Vector3.right).normalized;
+            v = Vector3.Cross(this.axis, u);
+            foreach (var p in removedWorld)
+            {
+                Vector3 d = p - origin;
+                var k = new Vector2Int(Mathf.FloorToInt(Vector3.Dot(d, u) / Cell), Mathf.FloorToInt(Vector3.Dot(d, v) / Cell));
+                float h = Vector3.Dot(d, this.axis), cur;
+                if (!low.TryGetValue(k, out cur) || h < cur) low[k] = h;
+            }
+        }
+
+        public bool Empty { get { return low.Count == 0; } }
+
+        /// <summary>True if the point was under the canopy and no more than <paramref name="depth"/> below it.</summary>
+        public bool UnderCanopy(Vector3 p, float depth)
+        {
+            Vector3 d = p - origin;
+            int cu = Mathf.FloorToInt(Vector3.Dot(d, u) / Cell), cv = Mathf.FloorToInt(Vector3.Dot(d, v) / Cell);
+            float h = Vector3.Dot(d, axis), best = float.MaxValue;
+            for (int x = -2; x <= 2; x++)
+                for (int y = -2; y <= 2; y++)
+                {
+                    float l;
+                    if (low.TryGetValue(new Vector2Int(cu + x, cv + y), out l) && l < best) best = l;
+                }
+            return best < float.MaxValue && h >= best - depth;
+        }
+    }
+
     /// <summary>Fast "is anything within r of this point" over a fixed set of world points.</summary>
     public class PointGrid
     {
@@ -214,14 +256,21 @@ namespace EjectionSeats
             return gm != null && gm.IsGlass(uv);
         }
 
-        /// <summary>Brightness of the hull paint (main texture) at a point, 0-1.</summary>
+        /// <summary>
+        /// How bright the surface looks at a point, 0-1: the texture under it times the material's own colour, so a
+        /// dark-tinted material, or one with no texture at all, counts as dark too.
+        /// </summary>
         public static float Luma(Material m, Vector2 uv)
         {
-            if (m == null || !m.HasProperty("_MainTex")) return 1f;
-            Sampler s = Read(m.GetTexture("_MainTex"));
-            if (s == null) return 1f;
+            if (m == null) return 1f;
+            Color tint = m.HasProperty("_Color") ? m.GetColor("_Color") : Color.white;
+            float t = 0.3f * tint.r + 0.59f * tint.g + 0.11f * tint.b;
+            Texture tex = m.HasProperty("_MainTex") ? m.GetTexture("_MainTex") : null;
+            if (tex == null) return t;
+            Sampler s = Read(tex);
+            if (s == null) return t;
             Color32 c = At(s, uv);
-            return (0.3f * c.r + 0.59f * c.g + 0.11f * c.b) / 255f;
+            return t * (0.3f * c.r + 0.59f * c.g + 0.11f * c.b) / 255f;
         }
 
         class Tri { public Vector3 a, b, c, centre, normal; public int mesh; }
@@ -328,17 +377,16 @@ namespace EjectionSeats
                 area[group[i]] += ar;
                 mid[group[i]] += g.centre * ar;
             }
-            // a pane counts only if its middle is over a seat's way out (not the windscreen in front of it)
-            for (int gi = 0; gi < groups; gi++)
+            // a pane belongs to the canopy if any of it is around a seat's way out
+            for (int i = 0; i < glass.Count; i++)
             {
-                if (area[gi] <= 0f) continue;
-                Vector3 m = mid[gi] / area[gi];
+                if (near[group[i]]) continue;
                 foreach (var c in plan.columns)
                 {
-                    Vector3 d = m - c.origin;
+                    Vector3 d = glass[i].centre - c.origin;
                     float along = Vector3.Dot(d, c.dir);
-                    if (along < c.start - 0.3f) continue;
-                    if ((d - c.dir * along).magnitude < c.radius * 1.4f) { near[gi] = true; break; }
+                    if (along < c.start - 0.5f) continue;
+                    if ((d - c.dir * along).magnitude < c.radius * 2.2f) { near[group[i]] = true; break; }
                 }
             }
             var pts = new List<Vector2>();

@@ -305,6 +305,7 @@ namespace EjectionSeats
                 canopyGone = true;
                 localCols = new List<HullCutter.Column>();
                 localOpening = plan.openingLocal.Count > 0 ? new List<Vector3>(plan.openingLocal) : null;
+                localOpeningAxis = plan.openingAxisLocal;
                 foreach (var c in plan.columns)
                 {
                     var l = c;
@@ -318,13 +319,14 @@ namespace EjectionSeats
         }
 
         List<Vector3> localOpening;   // hull points the glass canopy took with it (part space)
+        Vector3 localOpeningAxis;
 
-        PointGrid WorldOpening()
+        OpeningMap WorldOpening()
         {
-            if (localOpening == null || localOpening.Count == 0) return null;
+            if (localOpening == null || localOpening.Count == 0 || localOpeningAxis.sqrMagnitude < 0.5f) return null;
             var w = new List<Vector3>(localOpening.Count);
             foreach (var p in localOpening) w.Add(part.transform.TransformPoint(p));
-            return new PointGrid(w, 0.1f);
+            return new OpeningMap(w, part.transform.position, part.transform.TransformDirection(localOpeningAxis));
         }
 
         List<HullCutter.Column> WorldCols()
