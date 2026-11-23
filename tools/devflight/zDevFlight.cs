@@ -82,6 +82,7 @@ namespace zDevFlight
             m.installed = true;
             string seat = Cfg.S("seat", "");
             if (seat != "") { m.seatVariant = seat; m.seatEra = SeatVariant.Get(seat).era; }
+            if (Cfg.F("noInterior", 0f) > 0f) m.showInterior = false;
             m.RefreshUI();
             yield return new WaitForFixedUpdate();
             Pin(v, lat, lon, alt, speed, false);

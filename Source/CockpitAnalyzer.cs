@@ -45,6 +45,7 @@ namespace EjectionSeats
     {
         public List<SeatPose> seats = new List<SeatPose>();
         public List<MeshFilter> canopy = new List<MeshFilter>();
+        public List<Vector3> openingLocal = new List<Vector3>();   // hull points removed with a glass canopy (part space)
         public string canopyDescription = "none";
         public bool isAircraft;
         public Vector3 vehicleUp, vehicleFwd;
@@ -626,10 +627,19 @@ namespace EjectionSeats
         public static int CutTriangles(MeshFilter mf, Vector3 inside, Func<Vector3, Vector3, Vector3, Vector3, int> classify,
                                        Func<Vector3, Vector3, Material, Vector2, bool> piece, Transform debrisRoot, Material glassMaterial)
         {
+            return CutTriangles(mf, inside, classify, piece, debrisRoot, glassMaterial, null, null);
+        }
+
+        /// <param name="removedWorld">Collects world points of everything removed (corners and centres).</param>
+        /// <param name="spaceToWorld">Maps a foreign space (KSP's IVA space) into the flight world.</param>
+        public static int CutTriangles(MeshFilter mf, Vector3 inside, Func<Vector3, Vector3, Vector3, Vector3, int> classify,
+                                       Func<Vector3, Vector3, Material, Vector2, bool> piece, Transform debrisRoot, Material glassMaterial,
+                                       List<Vector3> removedWorld, Matrix4x4? spaceToWorld)
+        {
             Mesh src = mf.sharedMesh;
             var rend = mf.GetComponent<Renderer>();
             if (src == null || rend == null || !src.isReadable) return 0;
-            Matrix4x4 l2w = mf.transform.localToWorldMatrix;
+            Matrix4x4 l2w = spaceToWorld.HasValue ? spaceToWorld.Value * mf.transform.localToWorldMatrix : mf.transform.localToWorldMatrix;
             Vector3[] pv = src.vertices; Vector3[] nv = src.normals; Vector4[] tv = src.tangents;
             Vector2[] uv = src.uv; Vector2[] uv2 = src.uv2; Color[] cv = src.colors;
             bool hasN = nv != null && nv.Length == pv.Length, hasT = tv != null && tv.Length == pv.Length;
@@ -681,6 +691,7 @@ namespace EjectionSeats
                             if (take)
                             {
                                 removed++;
+                                if (removedWorld != null) removedWorld.Add((pa + pb + pc) / 3f);
                                 bool isGlass = glassMaterial != null && hasUV && GlassFinder.IsGlassAt(smMat, puv);
                                 var lv = isGlass ? glassV : debV; var li = isGlass ? glassI : deb[sm];
                                 int bi = lv.Count; lv.Add(v[0]); lv.Add(v[1]); lv.Add(v[2]); li.Add(bi); li.Add(bi + 1); li.Add(bi + 2);
@@ -696,6 +707,7 @@ namespace EjectionSeats
                     if (verdict == 1)
                     {
                         removed++;
+                        if (removedWorld != null) { removedWorld.Add(a); removedWorld.Add(b); removedWorld.Add(c); removedWorld.Add((a + b + c) / 3f); }
                         if (glassMaterial != null && hasUV && GlassFinder.IsGlass(smMat, uv[t[i]], uv[t[i + 1]], uv[t[i + 2]]))
                         {
                             int gi = glassV.Count;
@@ -712,7 +724,7 @@ namespace EjectionSeats
             }
             if (removed == 0) return 0;
             mf.sharedMesh = BuildMesh(src.name + "_cut", all, keep, hasN, hasT, hasUV, hasUV2, hasC, null, Matrix4x4.identity);
-            if (debrisRoot != null)
+            if (debrisRoot != null && (debV.Count > 0 || glassV.Count > 0))
             {
                 Matrix4x4 toDeb = debrisRoot.worldToLocalMatrix * l2w;
                 var go = new GameObject(mf.name + "_canopyGlass");
@@ -792,6 +804,29 @@ namespace EjectionSeats
     {
         public static GameObject Build(Part part, List<HullCutter.Column> cols, EjectionSettings s)
         {
+            return Build(part, cols, s, null);
+        }
+
+        /// <summary>
+        /// Interior geometry that sat right behind a jettisoned glass canopy (the inner canopy frame) goes with it,
+        /// otherwise its dark edges show round the opening. 0 keep, 1 remove, 2 split and test the pieces.
+        /// </summary>
+        public static void CutBehindOpening(MeshFilter f, Vector3 inside, PointGrid opening, Matrix4x4? spaceToWorld)
+        {
+            if (f == null || opening == null) return;
+            const float r = 0.1f;
+            HullCutter.CutTriangles(f, inside,
+                (a, b, c, n) =>
+                {
+                    int near = (opening.Near(a, r) ? 1 : 0) + (opening.Near(b, r) ? 1 : 0) + (opening.Near(c, r) ? 1 : 0);
+                    if (near == 3) return 1;
+                    return near > 0 || opening.Near((a + b + c) / 3f, r) ? 2 : 0;
+                },
+                (centre, n, m, uv) => opening.Near(centre, r), null, null, null, spaceToWorld);
+        }
+
+        public static GameObject Build(Part part, List<HullCutter.Column> cols, EjectionSettings s, PointGrid opening)
+        {
             InternalModel im = part.internalModel;
             if (im == null)
             {
@@ -851,6 +886,8 @@ namespace EjectionSeats
             // clear the escape column inside the cabin too (overhead panels, ceilings)
             if (cols != null)
                 foreach (var f in filters) HullCutter.Cut(f, cols, s.subdivideEdge, null);
+            if (opening != null)
+                foreach (var f in filters) { try { CutBehindOpening(f, part.transform.position, opening, null); } catch (Exception e) { Log.Dbg("interior opening cut: " + e.Message); } }
             Log.Dbg("interior reveal: " + count + " renderers");
             return root;
         }
@@ -871,6 +908,11 @@ namespace EjectionSeats
         /// </summary>
         public static int CutIVA(Part part, List<HullCutter.Column> cols, EjectionSettings s)
         {
+            return CutIVA(part, cols, s, null);
+        }
+
+        public static int CutIVA(Part part, List<HullCutter.Column> cols, EjectionSettings s, PointGrid opening)
+        {
             InternalModel im = part.internalModel;
             if (im == null || cols == null) return 0;
             Matrix4x4 m = InternalToWorldMatrix(part, im, s);
@@ -883,6 +925,11 @@ namespace EjectionSeats
                 if (r == null) continue;
                 try { removed += HullCutter.Cut(mf, cols, s.subdivideEdge, null, m); }
                 catch (Exception e) { Log.Dbg("IVA cut failed on " + mf.name + ": " + e.Message); }
+                if (opening != null)
+                {
+                    try { CutBehindOpening(mf, part.transform.position, opening, m); }
+                    catch (Exception e) { Log.Dbg("IVA opening cut failed on " + mf.name + ": " + e.Message); }
+                }
             }
             Log.Dbg("IVA cut: " + removed + " triangles removed");
             return removed;

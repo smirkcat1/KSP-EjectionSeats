@@ -304,6 +304,7 @@ namespace EjectionSeats
             {
                 canopyGone = true;
                 localCols = new List<HullCutter.Column>();
+                localOpening = plan.openingLocal.Count > 0 ? new List<Vector3>(plan.openingLocal) : null;
                 foreach (var c in plan.columns)
                 {
                     var l = c;
@@ -314,6 +315,16 @@ namespace EjectionSeats
             }
             cabinOpen = blowCanopy || showInterior;
             RefreshCabin(true);
+        }
+
+        List<Vector3> localOpening;   // hull points the glass canopy took with it (part space)
+
+        PointGrid WorldOpening()
+        {
+            if (localOpening == null || localOpening.Count == 0) return null;
+            var w = new List<Vector3>(localOpening.Count);
+            foreach (var p in localOpening) w.Add(part.transform.TransformPoint(p));
+            return new PointGrid(w, 0.1f);
         }
 
         List<HullCutter.Column> WorldCols()
@@ -346,12 +357,12 @@ namespace EjectionSeats
                     if (interiorCopy != null) Destroy(interiorCopy);
                     foreach (var kv in mirrors) if (kv.Value != null) Destroy(kv.Value.gameObject);
                     mirrors.Clear();
-                    interiorCopy = InteriorReveal.Build(part, WorldCols(), S);
+                    interiorCopy = InteriorReveal.Build(part, WorldCols(), S, WorldOpening());
                 }
                 cutIM = part.internalModel;
                 imStableSince = Time.realtimeSinceStartup;
                 helmetTried.Clear();
-                if (cutIM != null && localCols != null) InteriorReveal.CutIVA(part, WorldCols(), S);
+                if (cutIM != null && localCols != null) InteriorReveal.CutIVA(part, WorldCols(), S, WorldOpening());
             }
 
             if (portraitResetPending && !force)

@@ -11,6 +11,42 @@ namespace EjectionSeats
     /// canopy is everything inside the outline of those panes (glass plus the frame between the panes).
     /// Textures are read back from the GPU, so KSP's non-readable textures work.
     /// </summary>
+    /// <summary>Fast "is anything within r of this point" over a fixed set of world points.</summary>
+    public class PointGrid
+    {
+        readonly Dictionary<Vector3Int, List<Vector3>> cells = new Dictionary<Vector3Int, List<Vector3>>();
+        readonly float size;
+        public int Count { get; private set; }
+
+        public PointGrid(IEnumerable<Vector3> points, float cellSize)
+        {
+            size = cellSize;
+            foreach (var p in points)
+            {
+                var k = Key(p); List<Vector3> l;
+                if (!cells.TryGetValue(k, out l)) cells[k] = l = new List<Vector3>();
+                l.Add(p); Count++;
+            }
+        }
+
+        Vector3Int Key(Vector3 p) { return new Vector3Int(Mathf.FloorToInt(p.x / size), Mathf.FloorToInt(p.y / size), Mathf.FloorToInt(p.z / size)); }
+
+        public bool Near(Vector3 p, float r)
+        {
+            int span = Mathf.CeilToInt(r / size);
+            var k = Key(p); float rr = r * r;
+            for (int x = -span; x <= span; x++)
+                for (int y = -span; y <= span; y++)
+                    for (int z = -span; z <= span; z++)
+                    {
+                        List<Vector3> l;
+                        if (!cells.TryGetValue(new Vector3Int(k.x + x, k.y + y, k.z + z), out l)) continue;
+                        foreach (var q in l) if ((q - p).sqrMagnitude < rr) return true;
+                    }
+            return false;
+        }
+    }
+
     public static class GlassFinder
     {
         public class Result
@@ -39,8 +75,7 @@ namespace EjectionSeats
                 int inside = (Inside(outline, pa) ? 1 : 0) + (Inside(outline, pb) ? 1 : 0) + (Inside(outline, pc) ? 1 : 0);
                 if (inside == 3) return 1;
                 if (inside > 0 || Inside(outline, Project((a + b + c) / 3f))) return 2;
-                // near the outline: may carry window paint that should go with the canopy
-                if (DistanceTo(outline, pa) < 0.04f || DistanceTo(outline, pb) < 0.04f || DistanceTo(outline, pc) < 0.04f) return 2;
+                if (DistanceTo(outline, pa) < 0.03f || DistanceTo(outline, pb) < 0.03f || DistanceTo(outline, pc) < 0.03f) return 2;
                 return 0;
             }
 
@@ -50,9 +85,10 @@ namespace EjectionSeats
             {
                 if (!found || Vector3.Dot(normal, axis) < 0.1f) return false;
                 Vector2 p = Project(centre);
-                if (Inside(outline, p)) return true;                       // everything inside the window outline goes
-                // just outside it: take the painted glass and dark window border too, so none is left round the hole
-                return DistanceTo(outline, p) < 0.04f && (IsGlassAt(m, uv) || Luma(m, uv) < 0.3f);
+                if (Inside(outline, p)) return true;                       // the opening follows the window outline
+                // the dark border painted right round the glass goes with it (judged on the texture, so no other
+                // dark paint nearby is touched)
+                return DistanceTo(outline, p) < 0.03f && Luma(m, uv) < 0.35f && NearGlassInTexture(m, uv, 5);
             }
 
             /// <summary>True if the opening covers every seat's way out (so no round hole is needed as well).</summary>
@@ -153,6 +189,23 @@ namespace EjectionSeats
             if (gm == null) return false;
             int votes = (gm.IsGlass((u0 + u1 + u2) / 3f) ? 2 : 0) + (gm.IsGlass(u0) ? 1 : 0) + (gm.IsGlass(u1) ? 1 : 0) + (gm.IsGlass(u2) ? 1 : 0);
             return votes >= 3;
+        }
+
+        /// <summary>True if there is glass paint within <paramref name="texels"/> texels of this point.</summary>
+        public static bool NearGlassInTexture(Material m, Vector2 uv, int texels)
+        {
+            GlassMap gm = MapFor(m);
+            if (gm == null) return false;
+            Sampler s = gm.useLit ? gm.lit : gm.main;
+            if (s == null) return false;
+            float dx = texels / (float)s.w, dy = texels / (float)s.h;
+            for (int i = 0; i < 16; i++)
+            {
+                float a = i / 16f * Mathf.PI * 2f;
+                for (int k = 1; k <= 2; k++)
+                    if (gm.IsGlass(uv + new Vector2(Mathf.Cos(a) * dx * k * 0.5f, Mathf.Sin(a) * dy * k * 0.5f))) return true;
+            }
+            return false;
         }
 
         public static bool IsGlassAt(Material m, Vector2 uv)
@@ -266,18 +319,26 @@ namespace EjectionSeats
             var areaN = new Vector3[groups];
             var near = new bool[groups];
             var area = new float[groups];
+            var mid = new Vector3[groups];
             for (int i = 0; i < glass.Count; i++)
             {
                 var g = glass[i];
                 float ar = Vector3.Cross(g.b - g.a, g.c - g.a).magnitude * 0.5f;
                 areaN[group[i]] += g.normal * ar;
                 area[group[i]] += ar;
+                mid[group[i]] += g.centre * ar;
+            }
+            // a pane counts only if its middle is over a seat's way out (not the windscreen in front of it)
+            for (int gi = 0; gi < groups; gi++)
+            {
+                if (area[gi] <= 0f) continue;
+                Vector3 m = mid[gi] / area[gi];
                 foreach (var c in plan.columns)
                 {
-                    Vector3 d = g.centre - c.origin;
+                    Vector3 d = m - c.origin;
                     float along = Vector3.Dot(d, c.dir);
-                    if (along < c.start - 0.5f) continue;
-                    if ((d - c.dir * along).magnitude < c.radius * 2.2f) { near[group[i]] = true; break; }
+                    if (along < c.start - 0.3f) continue;
+                    if ((d - c.dir * along).magnitude < c.radius * 1.4f) { near[gi] = true; break; }
                 }
             }
             var pts = new List<Vector2>();

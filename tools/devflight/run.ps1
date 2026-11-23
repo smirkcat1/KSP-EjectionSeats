@@ -6,7 +6,7 @@ param(
     [Parameter(Mandatory = $true)][string]$Out,
     [float]$Alt = 800, [float]$Speed = 200, [float]$Duration = 6,
     [string]$Shots = "", [float]$CamDist = 1.4, [float]$CamHdg = 3.4, [float]$CamPitch = 0.25,   # front view of the kerbal
-    [float]$Dump = 0, [string]$Seat = "", [float]$Kill = -1, [string]$Part = "Mark1Cockpit", [float]$WatchCockpit = 0,
+    [float]$Dump = 0, [string]$Seat = "", [float]$Kill = -1, [string]$Part = "Mark1Cockpit", [float]$WatchCockpit = 0, [float]$NoInterior = 0,
     [string]$TestDir = "C:\KSP_EjectionTest"
 )
 $ErrorActionPreference = "Stop"
@@ -51,7 +51,7 @@ if (Test-Path $Out) { Remove-Item $Out -Recurse -Force }
 $inv = [Globalization.CultureInfo]::InvariantCulture
 $flag = @($Out, ("alt = " + $Alt.ToString($inv)), ("speed = " + $Speed.ToString($inv)), ("duration = " + $Duration.ToString($inv)), ("shots = " + $Shots),
           ("camDist = " + $CamDist.ToString($inv)), ("camHdg = " + $CamHdg.ToString($inv)), ("camPitch = " + $CamPitch.ToString($inv)),
-          ("dump = " + $Dump.ToString($inv)), ("seat = " + $Seat), ("kill = " + $Kill.ToString($inv)), ("watchCockpit = " + $WatchCockpit.ToString($inv)))
+          ("dump = " + $Dump.ToString($inv)), ("seat = " + $Seat), ("kill = " + $Kill.ToString($inv)), ("watchCockpit = " + $WatchCockpit.ToString($inv)), ("noInterior = " + $NoInterior.ToString($inv)))
 Set-Content (Join-Path $pd "flight.flag") $flag -Encoding ascii
 
 $g = Start-Process (Join-Path $t "KSP_x64.exe") -WorkingDirectory $t -PassThru
