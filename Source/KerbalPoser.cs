@@ -16,7 +16,6 @@ namespace EjectionSeats
 
         public Mode mode = Mode.None;
         public string grip = "pan";        // pan | sides | overhead | lever_r | lever_l
-        public bool pulled;                // handle pulled (from the catapult firing onwards)
         public ChuteRig chute;
 
         class Limb { public Transform upper, mid, end, tip, thumb; public float side; }
@@ -29,7 +28,7 @@ namespace EjectionSeats
         bool ok;
 
         // smoothed weights
-        float wBrace, wFree, wChute, pull, modeAge;
+        float wBrace, wFree, wChute, modeAge;
         Mode lastMode = Mode.None;
         float seed;
 
@@ -98,7 +97,6 @@ namespace EjectionSeats
             wFree = Mathf.MoveTowards(wFree, mode == Mode.Freefall ? 1f : 0f, dt * 5f);
             if (mode != Mode.Chute) chuteClip = null;
             wChute = Mathf.MoveTowards(wChute, mode == Mode.Chute && chute != null ? 1f : 0f, dt * 1.6f);
-            pull = Mathf.MoveTowards(pull, pulled ? 1f : 0f, dt * 7f);
             if (wBrace + wFree + wChute < 0.001f) return;
 
             if (wBrace > 0f) Brace(wBrace);
@@ -116,7 +114,7 @@ namespace EjectionSeats
             // Targets are wrist positions; each hand is then aimed so it lies on the leg or hangs beside the seat
             // instead of pushing into the suit. Kerbal arms are short (about 0.17 m to the wrist).
             Vector3 lT, rT, lPole, rPole, lHand, rHand;
-            float p = pull;
+            const float p = 1f;   // one pose: hands on the handle, pulling it
             Vector3 down = KD(0f, -1f, 0.15f), onKnee = KD(0f, -0.55f, 1f);
             switch (grip)
             {

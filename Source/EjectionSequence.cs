@@ -620,7 +620,6 @@ namespace EjectionSeats
             // ---- 2. catapult rail ----
 
             Phase = "rail";
-            if (poser != null) poser.pulled = true;
             Vector3 seatBase = seat.transform.position;
             Burst.Smoke(seatBase, -transform.up, 25, 0.35f, 4f, 1.2f, new Color(0.85f, 0.85f, 0.85f, 0.8f));
             Burst.Flash(seatBase, 5f, 0.25f);

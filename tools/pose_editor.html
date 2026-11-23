@@ -36,11 +36,10 @@ code { background: rgba(127,127,127,0.15); padding: 1px 5px; border-radius: 4px;
   <h1>Ejection pose editor</h1>
   <p>Drag the big dots (wrists) and the small dots (hand tips). Drag empty space to orbit, right-drag to pan,
      scroll to zoom. Elbows and hands take the way round that stays clear of the kerbal and the seat; anything
-     still clipping is marked red. Save the file and send it over.</p>
+     still clipping is marked red. The pose is the moment the kerbal pulls the handle. Save the file and send it over.</p>
 </header>
 <div class="bar">
   <label>Pose <select id="pose"></select></label>
-  <label>State <select id="state"><option value="rest">Resting on the handle</option><option value="pulled">Handle pulled</option></select></label>
   <label><input type="checkbox" id="sym" checked> Symmetry</label>
   <label><input type="checkbox" id="ghost"> See-through body</label>
   <button id="front">Front</button><button id="side">Side</button>
@@ -308,25 +307,21 @@ function defaults() {
   const down = norm3([0, -1, 0.15]), onKnee = norm3([0, -0.55, 1]);
   const mk = (w, hand, pole) => ({ wrist: w, hand, pole });
   const d = {
-    sides: { rest: { L: mk([-0.128, -0.06, 0], down, [-0.35, 0, -0.25]) }, pulled: { L: mk([-0.128, -0.03, 0], down, [-0.35, 0, -0.25]) } },
-    pan: { rest: { L: mk([-0.04, -0.005, -0.005], onKnee, [-0.35, -0.05, -0.1]) }, pulled: { L: mk([-0.04, 0.02, -0.02], onKnee, [-0.35, -0.05, -0.1]) } },
-    lever_r: {
-      rest: { R: mk([0.128, -0.06, 0], down, [0.35, 0, -0.25]), L: mk([-0.05, 0, -0.03], onKnee, [-0.35, -0.05, -0.1]) },
-      pulled: { R: mk([0.128, -0.045, -0.04], down, [0.35, 0, -0.25]), L: mk([-0.05, 0, -0.03], onKnee, [-0.35, -0.05, -0.1]) } },
-    lever_l: {
-      rest: { L: mk([-0.128, -0.06, 0], down, [-0.35, 0, -0.25]), R: mk([0.05, 0, -0.03], onKnee, [0.35, -0.05, -0.1]) },
-      pulled: { L: mk([-0.128, -0.045, -0.04], down, [-0.35, 0, -0.25]), R: mk([0.05, 0, -0.03], onKnee, [0.35, -0.05, -0.1]) } },
+    sides: { L: mk([-0.128, -0.03, 0], down, [-0.35, 0, -0.25]) },
+    pan: { L: mk([-0.04, 0.02, -0.02], onKnee, [-0.35, -0.05, -0.1]) },
+    lever_r: { R: mk([0.128, -0.045, -0.04], down, [0.35, 0, -0.25]), L: mk([-0.05, 0, -0.03], onKnee, [-0.35, -0.05, -0.1]) },
+    lever_l: { L: mk([-0.128, -0.045, -0.04], down, [-0.35, 0, -0.25]), R: mk([0.05, 0, -0.03], onKnee, [0.35, -0.05, -0.1]) },
   };
-  for (const k of ['sides', 'pan']) for (const s of ['rest', 'pulled']) d[k][s].R = mirrorArm(d[k][s].L);
+  for (const k of ['sides', 'pan']) d[k].R = mirrorArm(d[k].L);
   return d;
 }
 let data = defaults();
-const poseSel = document.getElementById('pose'), stateSel = document.getElementById('state'), symBox = document.getElementById('sym');
+const poseSel = document.getElementById('pose'), symBox = document.getElementById('sym');
 for (const k in POSES) { const o = document.createElement('option'); o.value = k; o.textContent = POSES[k].title; poseSel.appendChild(o); }
-const cur = () => data[poseSel.value][stateSel.value];
+const cur = () => data[poseSel.value];
 const symmetric = () => symBox.checked && POSES[poseSel.value].sym;
 poseSel.onchange = () => { symBox.checked = POSES[poseSel.value].sym; update(); };
-stateSel.onchange = update; symBox.onchange = update;
+symBox.onchange = update;
 document.getElementById('ghost').onchange = (e) => {
   for (const m of materials) { const a = e.target.checked ? Math.min(m.userData.alpha, 0.35) : m.userData.alpha; m.transparent = a < 1; m.opacity = a; m.depthWrite = a >= 1; m.needsUpdate = true; }
   render();
@@ -447,21 +442,18 @@ function render() {
 
 // ---------------------------------------------------------------- file
 function exportData() {
-  const out = { format: 'EjectionSeats.poses', version: 1, kerbal: M.kerbal,
+  const out = { format: 'EjectionSeats.poses', version: 2, kerbal: M.kerbal,
     units: 'metres in the kerbal frame: x right, y up, z forward (seated EVA kerbal)', poses: {} };
   for (const k in POSES) {
     out.poses[k] = {};
-    for (const st of ['rest', 'pulled']) {
-      out.poses[k][st] = {};
-      const c = data[k][st];
-      if (POSES[k].sym && symBox.checked) c.R = mirrorArm(c.L);
-      resetPose(); brace();
-      let left = null;
-      for (const s of ['L', 'R']) {
-        const r = (s === 'R' && POSES[k].sym && symBox.checked) ? mirrorSolution(left) : solveArm(s, c[s]);
-        if (s === 'L') left = r;
-        out.poses[k][st][s] = { wrist: round(arr(r.W)), elbow: round(arr(r.E)), handDir: round(arr(r.hand)), clips: r.deepArm > 0.004 || r.deepHand > 0.004 };
-      }
+    const c = data[k];
+    if (POSES[k].sym && symBox.checked) c.R = mirrorArm(c.L);
+    resetPose(); brace();
+    let left = null;
+    for (const s of ['L', 'R']) {
+      const r = (s === 'R' && POSES[k].sym && symBox.checked) ? mirrorSolution(left) : solveArm(s, c[s]);
+      if (s === 'L') left = r;
+      out.poses[k][s] = { wrist: round(arr(r.W)), elbow: round(arr(r.E)), handDir: round(arr(r.hand)), clips: r.deepArm > 0.004 || r.deepHand > 0.004 };
     }
   }
   update();
@@ -470,13 +462,12 @@ function exportData() {
 function importData(obj) {
   if (!obj || obj.format !== 'EjectionSeats.poses') throw new Error('not a pose file');
   const d = defaults();
-  for (const k in obj.poses) if (d[k]) for (const st of ['rest', 'pulled']) for (const s of ['L', 'R']) {
-    const a = obj.poses[k][st] && obj.poses[k][st][s]; if (!a) continue;
-    d[k][st][s] = { wrist: a.wrist, hand: a.handDir, pole: a.elbow };
+  for (const k in obj.poses) if (d[k]) for (const s of ['L', 'R']) {
+    const p = obj.poses[k], a = p[s] || (p.pulled && p.pulled[s]);   // version 1 files had rest/pulled
+    if (a) d[k][s] = { wrist: a.wrist, hand: a.handDir, pole: a.elbow };
   }
   data = d; update();
-}
-document.getElementById('save').onclick = () => {
+}document.getElementById('save').onclick = () => {
   const blob = new Blob([JSON.stringify(exportData(), null, 2)], { type: 'application/json' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'ejection_poses.json'; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
