@@ -593,9 +593,9 @@ namespace EjectionSeats
             if (poser != null) poser.mode = KerbalPoser.Mode.Brace;
             // kerbal starts a little above and ahead of the seat cushion and settles in; the seat itself
             // stays fixed in the cockpit (its local offset counter-moves the kerbal's lift)
-            Play(S.animBrace, 0f);
-            Play(S.animSeated, Mathf.Max(0.05f, S.sitDownTime * 0.8f));
-            Vector3 liftLocal = new Vector3(0f, 0.10f, 0.06f);
+            // seated from the first frame (they were sitting in the cockpit); just a small settle into the cushion
+            Play(S.animSeated, 0f);
+            Vector3 liftLocal = new Vector3(0f, 0.035f, 0.02f);
             float t = 0f;
             while (t < S.sitDownTime)
             {
