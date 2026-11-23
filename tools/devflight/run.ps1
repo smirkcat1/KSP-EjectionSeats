@@ -5,7 +5,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$Out,
     [float]$Alt = 800, [float]$Speed = 200, [float]$Duration = 6,
-    [string]$Shots = "", [float]$CamDist = 4, [float]$CamHdg = 1.3, [float]$CamPitch = 0.15,
+    [string]$Shots = "", [float]$CamDist = 1.4, [float]$CamHdg = 3.4, [float]$CamPitch = 0.25,   # front view of the kerbal
     [float]$Dump = 0, [string]$Seat = "",
     [string]$TestDir = "C:\KSP_EjectionTest"
 )
