@@ -11,84 +11,6 @@ namespace EjectionSeats
     /// canopy is everything inside the outline of those panes (glass plus the frame between the panes).
     /// Textures are read back from the GPU, so KSP's non-readable textures work.
     /// </summary>
-    /// <summary>
-    /// The canopy's footprint seen along the escape direction: for each spot, how low the removed canopy came.
-    /// Used to take out only the interior that sat directly under it (the inner canopy frame).
-    /// </summary>
-    public class OpeningMap
-    {
-        readonly Dictionary<Vector2Int, float> low = new Dictionary<Vector2Int, float>();
-        readonly Vector3 origin, axis, u, v;
-        const float Cell = 0.04f;
-
-        public OpeningMap(IEnumerable<Vector3> removedWorld, Vector3 origin, Vector3 axis)
-        {
-            this.origin = origin; this.axis = axis.normalized;
-            u = Vector3.Cross(this.axis, Mathf.Abs(this.axis.y) < 0.9f ? Vector3.up : Vector3.right).normalized;
-            v = Vector3.Cross(this.axis, u);
-            foreach (var p in removedWorld)
-            {
-                Vector3 d = p - origin;
-                var k = new Vector2Int(Mathf.FloorToInt(Vector3.Dot(d, u) / Cell), Mathf.FloorToInt(Vector3.Dot(d, v) / Cell));
-                float h = Vector3.Dot(d, this.axis), cur;
-                if (!low.TryGetValue(k, out cur) || h < cur) low[k] = h;
-            }
-        }
-
-        public bool Empty { get { return low.Count == 0; } }
-
-        /// <summary>True if the point was under the canopy and no more than <paramref name="depth"/> below it.</summary>
-        public bool UnderCanopy(Vector3 p, float depth)
-        {
-            Vector3 d = p - origin;
-            int cu = Mathf.FloorToInt(Vector3.Dot(d, u) / Cell), cv = Mathf.FloorToInt(Vector3.Dot(d, v) / Cell);
-            float h = Vector3.Dot(d, axis), best = float.MaxValue;
-            for (int x = -2; x <= 2; x++)
-                for (int y = -2; y <= 2; y++)
-                {
-                    float l;
-                    if (low.TryGetValue(new Vector2Int(cu + x, cv + y), out l) && l < best) best = l;
-                }
-            return best < float.MaxValue && h >= best - depth;
-        }
-    }
-
-    /// <summary>Fast "is anything within r of this point" over a fixed set of world points.</summary>
-    public class PointGrid
-    {
-        readonly Dictionary<Vector3Int, List<Vector3>> cells = new Dictionary<Vector3Int, List<Vector3>>();
-        readonly float size;
-        public int Count { get; private set; }
-
-        public PointGrid(IEnumerable<Vector3> points, float cellSize)
-        {
-            size = cellSize;
-            foreach (var p in points)
-            {
-                var k = Key(p); List<Vector3> l;
-                if (!cells.TryGetValue(k, out l)) cells[k] = l = new List<Vector3>();
-                l.Add(p); Count++;
-            }
-        }
-
-        Vector3Int Key(Vector3 p) { return new Vector3Int(Mathf.FloorToInt(p.x / size), Mathf.FloorToInt(p.y / size), Mathf.FloorToInt(p.z / size)); }
-
-        public bool Near(Vector3 p, float r)
-        {
-            int span = Mathf.CeilToInt(r / size);
-            var k = Key(p); float rr = r * r;
-            for (int x = -span; x <= span; x++)
-                for (int y = -span; y <= span; y++)
-                    for (int z = -span; z <= span; z++)
-                    {
-                        List<Vector3> l;
-                        if (!cells.TryGetValue(new Vector3Int(k.x + x, k.y + y, k.z + z), out l)) continue;
-                        foreach (var q in l) if ((q - p).sqrMagnitude < rr) return true;
-                    }
-            return false;
-        }
-    }
-
     public static class GlassFinder
     {
         public class Result
@@ -107,30 +29,6 @@ namespace EjectionSeats
             {
                 if (!found || Vector3.Dot(normal, axis) < 0.1f) return false;
                 return Inside(outline, Project(centroid));
-            }
-
-            /// <summary>0 = keep, 1 = canopy, 2 = on the edge of the opening (split it and decide piece by piece).</summary>
-            public int Classify(Vector3 a, Vector3 b, Vector3 c, Vector3 normal)
-            {
-                if (!found || Vector3.Dot(normal, axis) < 0.1f) return 0;
-                Vector2 pa = Project(a), pb = Project(b), pc = Project(c);
-                int inside = (Inside(outline, pa) ? 1 : 0) + (Inside(outline, pb) ? 1 : 0) + (Inside(outline, pc) ? 1 : 0);
-                if (inside == 3) return 1;
-                if (inside > 0 || Inside(outline, Project((a + b + c) / 3f))) return 2;
-                if (DistanceTo(outline, pa) < 0.03f || DistanceTo(outline, pb) < 0.03f || DistanceTo(outline, pc) < 0.03f) return 2;
-                return 0;
-            }
-
-            /// <summary>For a small piece of an edge triangle: part of the canopy if it lies inside the outline and is
-            /// painted as glass or as the dark window border.</summary>
-            public bool PieceIsCanopy(Vector3 centre, Vector3 normal, Material m, Vector2 uv)
-            {
-                if (!found || Vector3.Dot(normal, axis) < 0.1f) return false;
-                Vector2 p = Project(centre);
-                if (Inside(outline, p)) return true;                       // the opening follows the window outline
-                // the dark border painted right round the glass goes with it (judged on the texture, so no other
-                // dark paint nearby is touched)
-                return DistanceTo(outline, p) < 0.03f && Luma(m, uv) < 0.35f && NearGlassInTexture(m, uv, 5);
             }
 
             /// <summary>True if the opening covers every seat's way out (so no round hole is needed as well).</summary>
@@ -233,46 +131,6 @@ namespace EjectionSeats
             return votes >= 3;
         }
 
-        /// <summary>True if there is glass paint within <paramref name="texels"/> texels of this point.</summary>
-        public static bool NearGlassInTexture(Material m, Vector2 uv, int texels)
-        {
-            GlassMap gm = MapFor(m);
-            if (gm == null) return false;
-            Sampler s = gm.useLit ? gm.lit : gm.main;
-            if (s == null) return false;
-            float dx = texels / (float)s.w, dy = texels / (float)s.h;
-            for (int i = 0; i < 16; i++)
-            {
-                float a = i / 16f * Mathf.PI * 2f;
-                for (int k = 1; k <= 2; k++)
-                    if (gm.IsGlass(uv + new Vector2(Mathf.Cos(a) * dx * k * 0.5f, Mathf.Sin(a) * dy * k * 0.5f))) return true;
-            }
-            return false;
-        }
-
-        public static bool IsGlassAt(Material m, Vector2 uv)
-        {
-            GlassMap gm = MapFor(m);
-            return gm != null && gm.IsGlass(uv);
-        }
-
-        /// <summary>
-        /// How bright the surface looks at a point, 0-1: the texture under it times the material's own colour, so a
-        /// dark-tinted material, or one with no texture at all, counts as dark too.
-        /// </summary>
-        public static float Luma(Material m, Vector2 uv)
-        {
-            if (m == null) return 1f;
-            Color tint = m.HasProperty("_Color") ? m.GetColor("_Color") : Color.white;
-            float t = 0.3f * tint.r + 0.59f * tint.g + 0.11f * tint.b;
-            Texture tex = m.HasProperty("_MainTex") ? m.GetTexture("_MainTex") : null;
-            if (tex == null) return t;
-            Sampler s = Read(tex);
-            if (s == null) return t;
-            Color32 c = At(s, uv);
-            return t * (0.3f * c.r + 0.59f * c.g + 0.11f * c.b) / 255f;
-        }
-
         class Tri { public Vector3 a, b, c, centre, normal; public int mesh; }
 
         public static Result Find(Part part, EjectionPlan plan, EjectionSettings S)
@@ -368,22 +226,15 @@ namespace EjectionSeats
             var areaN = new Vector3[groups];
             var near = new bool[groups];
             var area = new float[groups];
-            var mid = new Vector3[groups];
             for (int i = 0; i < glass.Count; i++)
             {
                 var g = glass[i];
                 float ar = Vector3.Cross(g.b - g.a, g.c - g.a).magnitude * 0.5f;
                 areaN[group[i]] += g.normal * ar;
                 area[group[i]] += ar;
-                mid[group[i]] += g.centre * ar;
-            }
-            // a pane belongs to the canopy if any of it is around a seat's way out
-            for (int i = 0; i < glass.Count; i++)
-            {
-                if (near[group[i]]) continue;
                 foreach (var c in plan.columns)
                 {
-                    Vector3 d = glass[i].centre - c.origin;
+                    Vector3 d = g.centre - c.origin;
                     float along = Vector3.Dot(d, c.dir);
                     if (along < c.start - 0.5f) continue;
                     if ((d - c.dir * along).magnitude < c.radius * 2.2f) { near[group[i]] = true; break; }
@@ -443,18 +294,6 @@ namespace EjectionSeats
             var r = new List<Vector2>(h.Count);
             foreach (var p in h) { Vector2 d = p - c; r.Add(p + (d.sqrMagnitude > 1e-8f ? d.normalized * by : Vector2.zero)); }
             return r;
-        }
-
-        static float DistanceTo(List<Vector2> h, Vector2 p)
-        {
-            float best = float.MaxValue;
-            for (int i = 0; i < h.Count; i++)
-            {
-                Vector2 a = h[i], b = h[(i + 1) % h.Count], ab = b - a;
-                float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / Mathf.Max(1e-8f, ab.sqrMagnitude));
-                best = Mathf.Min(best, (a + ab * t - p).magnitude);
-            }
-            return best;
         }
 
         static bool Inside(List<Vector2> h, Vector2 p)

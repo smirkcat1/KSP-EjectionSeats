@@ -82,7 +82,6 @@ namespace zDevFlight
             m.installed = true;
             string seat = Cfg.S("seat", "");
             if (seat != "") { m.seatVariant = seat; m.seatEra = SeatVariant.Get(seat).era; }
-            if (Cfg.F("noInterior", 0f) > 0f) m.showInterior = false;
             m.RefreshUI();
             yield return new WaitForFixedUpdate();
             Pin(v, lat, lon, alt, speed, false);
@@ -103,16 +102,14 @@ namespace zDevFlight
                 t += Time.deltaTime;
                 if (Time.timeScale < 0.99f) { Time.timeScale = 1f; Time.fixedDeltaTime = 0.02f; }   // no slow motion in tests
                 if (seq == null) { var all = FindObjectsOfType<EjectionSequence>(); if (all.Length > 0) seq = all[0]; }
-                bool watchCockpit = Cfg.F("watchCockpit", 0f) > 0f;
-                if (watchCockpit) { if (v != null && v.loaded && FlightGlobals.ActiveVessel != v && t > 0.3f) FlightGlobals.ForceSetActiveVessel(v); }
-                else if (seq != null && seq.eva != null && seq.eva.vessel != null && FlightGlobals.ActiveVessel != seq.eva.vessel && !seq.eva.vessel.packed) FlightGlobals.ForceSetActiveVessel(seq.eva.vessel);
+                if (seq != null && seq.eva != null && seq.eva.vessel != null && FlightGlobals.ActiveVessel != seq.eva.vessel && !seq.eva.vessel.packed) FlightGlobals.ForceSetActiveVessel(seq.eva.vessel);
                 if (wantDump && seq != null && (seq.Phase == "burn" || seq.Phase == "coast")) { wantDump = false; StartCoroutine(DumpLater(seq)); }
                 var cam = FlightCamera.fetch;
                 if (cam != null && camDist > 0f)
                 {
                     cam.SetDistance(camDist);
                     // view relative to the kerbal: heading measured from the kerbal's facing direction
-                    if (seq != null && seq.eva != null && !watchCockpit)
+                    if (seq != null && seq.eva != null)
                     {
                         Vector3 up = FlightGlobals.getUpAxis(seq.transform.position);
                         Vector3 f = Vector3.ProjectOnPlane(seq.transform.forward, up);

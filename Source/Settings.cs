@@ -255,7 +255,4 @@ namespace EjectionSeats
 
     /// <summary>Marker so our generated objects are never mistaken for part geometry.</summary>
     public class EjectionGenerated : MonoBehaviour { }
-
-    /// <summary>Marks a piece of the interior copy that came from an IVA prop (dashboard, instrument, seat).</summary>
-    public class InteriorPropTag : MonoBehaviour { }
 }

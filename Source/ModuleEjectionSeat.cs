@@ -304,8 +304,6 @@ namespace EjectionSeats
             {
                 canopyGone = true;
                 localCols = new List<HullCutter.Column>();
-                localOpening = plan.openingLocal.Count > 0 ? new List<Vector3>(plan.openingLocal) : null;
-                localOpeningAxis = plan.openingAxisLocal;
                 foreach (var c in plan.columns)
                 {
                     var l = c;
@@ -316,17 +314,6 @@ namespace EjectionSeats
             }
             cabinOpen = blowCanopy || showInterior;
             RefreshCabin(true);
-        }
-
-        List<Vector3> localOpening;   // hull points the glass canopy took with it (part space)
-        Vector3 localOpeningAxis;
-
-        OpeningMap WorldOpening()
-        {
-            if (localOpening == null || localOpening.Count == 0 || localOpeningAxis.sqrMagnitude < 0.5f) return null;
-            var w = new List<Vector3>(localOpening.Count);
-            foreach (var p in localOpening) w.Add(part.transform.TransformPoint(p));
-            return new OpeningMap(w, part.transform.position, part.transform.TransformDirection(localOpeningAxis));
         }
 
         List<HullCutter.Column> WorldCols()
@@ -359,12 +346,12 @@ namespace EjectionSeats
                     if (interiorCopy != null) Destroy(interiorCopy);
                     foreach (var kv in mirrors) if (kv.Value != null) Destroy(kv.Value.gameObject);
                     mirrors.Clear();
-                    interiorCopy = InteriorReveal.Build(part, WorldCols(), S, WorldOpening());
+                    interiorCopy = InteriorReveal.Build(part, WorldCols(), S);
                 }
                 cutIM = part.internalModel;
                 imStableSince = Time.realtimeSinceStartup;
                 helmetTried.Clear();
-                if (cutIM != null && localCols != null) InteriorReveal.CutIVA(part, WorldCols(), S, WorldOpening());
+                if (cutIM != null && localCols != null) InteriorReveal.CutIVA(part, WorldCols(), S);
             }
 
             if (portraitResetPending && !force)

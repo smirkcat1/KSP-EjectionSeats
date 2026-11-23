@@ -45,8 +45,6 @@ namespace EjectionSeats
     {
         public List<SeatPose> seats = new List<SeatPose>();
         public List<MeshFilter> canopy = new List<MeshFilter>();
-        public List<Vector3> openingLocal = new List<Vector3>();   // hull points removed with a glass canopy (part space)
-        public Vector3 openingAxisLocal;                            // the escape direction used for it (part space)
         public string canopyDescription = "none";
         public bool isAircraft;
         public Vector3 vehicleUp, vehicleFwd;
@@ -440,7 +438,7 @@ namespace EjectionSeats
             }
         }
 
-        public static bool InColumn(List<Column> cols, Vector3 w)
+        static bool InColumn(List<Column> cols, Vector3 w)
         {
             foreach (var c in cols)
             {
@@ -618,29 +616,17 @@ namespace EjectionSeats
         /// </summary>
         public static int CutTriangles(MeshFilter mf, Vector3 inside, Func<Vector3, Vector3, Vector3, Vector3, bool> remove, Transform debrisRoot)
         {
-            return CutTriangles(mf, inside, (a, b, c, n) => remove(a, b, c, n) ? 1 : 0, null, debrisRoot, null);
+            return CutTriangles(mf, inside, remove, debrisRoot, null);
         }
 
         /// <param name="glassMaterial">If set, removed triangles painted as glass get this material on the debris
         /// (see-through canopy glass); the rest keep the hull's materials.</param>
-        /// <param name="classify">0 keep, 1 remove, 2 edge: split into small pieces and ask <paramref name="piece"/>
-        /// (world centre, outward normal, material, uv) about each.</param>
-        public static int CutTriangles(MeshFilter mf, Vector3 inside, Func<Vector3, Vector3, Vector3, Vector3, int> classify,
-                                       Func<Vector3, Vector3, Material, Vector2, bool> piece, Transform debrisRoot, Material glassMaterial)
-        {
-            return CutTriangles(mf, inside, classify, piece, debrisRoot, glassMaterial, null, null);
-        }
-
-        /// <param name="removedWorld">Collects world points of everything removed (corners and centres).</param>
-        /// <param name="spaceToWorld">Maps a foreign space (KSP's IVA space) into the flight world.</param>
-        public static int CutTriangles(MeshFilter mf, Vector3 inside, Func<Vector3, Vector3, Vector3, Vector3, int> classify,
-                                       Func<Vector3, Vector3, Material, Vector2, bool> piece, Transform debrisRoot, Material glassMaterial,
-                                       List<Vector3> removedWorld, Matrix4x4? spaceToWorld)
+        public static int CutTriangles(MeshFilter mf, Vector3 inside, Func<Vector3, Vector3, Vector3, Vector3, bool> remove, Transform debrisRoot, Material glassMaterial)
         {
             Mesh src = mf.sharedMesh;
             var rend = mf.GetComponent<Renderer>();
             if (src == null || rend == null || !src.isReadable) return 0;
-            Matrix4x4 l2w = spaceToWorld.HasValue ? spaceToWorld.Value * mf.transform.localToWorldMatrix : mf.transform.localToWorldMatrix;
+            Matrix4x4 l2w = mf.transform.localToWorldMatrix;
             Vector3[] pv = src.vertices; Vector3[] nv = src.normals; Vector4[] tv = src.tangents;
             Vector2[] uv = src.uv; Vector2[] uv2 = src.uv2; Color[] cv = src.colors;
             bool hasN = nv != null && nv.Length == pv.Length, hasT = tv != null && tv.Length == pv.Length;
@@ -667,48 +653,9 @@ namespace EjectionSeats
                     Vector3 a = l2w.MultiplyPoint3x4(pv[t[i]]), b = l2w.MultiplyPoint3x4(pv[t[i + 1]]), c = l2w.MultiplyPoint3x4(pv[t[i + 2]]);
                     Vector3 n = Vector3.Cross(b - a, c - a);
                     if (n.sqrMagnitude > 1e-12f) { n.Normalize(); if (Vector3.Dot(n, (a + b + c) / 3f - inside) < 0f) n = -n; }
-                    int verdict = n.sqrMagnitude > 0.5f ? classify(a, b, c, n) : 0;
-                    if (verdict == 2 && piece != null)
-                    {
-                        // edge of the opening: split until small and follow the paint
-                        var stack = new Stack<KeyValuePair<Vx[], int>>();
-                        stack.Push(new KeyValuePair<Vx[], int>(new[] { all[t[i]], all[t[i + 1]], all[t[i + 2]] }, 0));
-                        float maxEdgeSq = 0.012f * 0.012f;
-                        while (stack.Count > 0)
-                        {
-                            var item = stack.Pop(); Vx[] v = item.Key;
-                            Vector3 pa = l2w.MultiplyPoint3x4(v[0].p), pb = l2w.MultiplyPoint3x4(v[1].p), pc = l2w.MultiplyPoint3x4(v[2].p);
-                            float e0 = (pb - pa).sqrMagnitude, e1 = (pc - pb).sqrMagnitude, e2 = (pa - pc).sqrMagnitude, em = Mathf.Max(e0, Mathf.Max(e1, e2));
-                            if (em > maxEdgeSq && item.Value < 10)
-                            {
-                                int d = item.Value + 1;
-                                if (em == e0) { Vx m = Vx.Lerp(v[0], v[1], 0.5f); stack.Push(new KeyValuePair<Vx[], int>(new[] { v[0], m, v[2] }, d)); stack.Push(new KeyValuePair<Vx[], int>(new[] { m, v[1], v[2] }, d)); }
-                                else if (em == e1) { Vx m = Vx.Lerp(v[1], v[2], 0.5f); stack.Push(new KeyValuePair<Vx[], int>(new[] { v[0], v[1], m }, d)); stack.Push(new KeyValuePair<Vx[], int>(new[] { v[0], m, v[2] }, d)); }
-                                else { Vx m = Vx.Lerp(v[2], v[0], 0.5f); stack.Push(new KeyValuePair<Vx[], int>(new[] { v[0], v[1], m }, d)); stack.Push(new KeyValuePair<Vx[], int>(new[] { m, v[1], v[2] }, d)); }
-                                continue;
-                            }
-                            Vector2 puv = (v[0].uv + v[1].uv + v[2].uv) / 3f;
-                            bool take = piece((pa + pb + pc) / 3f, n, smMat, puv);
-                            if (take)
-                            {
-                                removed++;
-                                if (removedWorld != null) removedWorld.Add((pa + pb + pc) / 3f);
-                                bool isGlass = glassMaterial != null && hasUV && GlassFinder.IsGlassAt(smMat, puv);
-                                var lv = isGlass ? glassV : debV; var li = isGlass ? glassI : deb[sm];
-                                int bi = lv.Count; lv.Add(v[0]); lv.Add(v[1]); lv.Add(v[2]); li.Add(bi); li.Add(bi + 1); li.Add(bi + 2);
-                            }
-                            else
-                            {
-                                int bi = all.Count; all.Add(v[0]); all.Add(v[1]); all.Add(v[2]);
-                                keep[sm].Add(bi); keep[sm].Add(bi + 1); keep[sm].Add(bi + 2);
-                            }
-                        }
-                        continue;
-                    }
-                    if (verdict == 1)
+                    if (n.sqrMagnitude > 0.5f && remove(a, b, c, n))
                     {
                         removed++;
-                        if (removedWorld != null) { removedWorld.Add(a); removedWorld.Add(b); removedWorld.Add(c); removedWorld.Add((a + b + c) / 3f); }
                         if (glassMaterial != null && hasUV && GlassFinder.IsGlass(smMat, uv[t[i]], uv[t[i + 1]], uv[t[i + 2]]))
                         {
                             int gi = glassV.Count;
@@ -725,7 +672,7 @@ namespace EjectionSeats
             }
             if (removed == 0) return 0;
             mf.sharedMesh = BuildMesh(src.name + "_cut", all, keep, hasN, hasT, hasUV, hasUV2, hasC, null, Matrix4x4.identity);
-            if (debrisRoot != null && (debV.Count > 0 || glassV.Count > 0))
+            if (debrisRoot != null)
             {
                 Matrix4x4 toDeb = debrisRoot.worldToLocalMatrix * l2w;
                 var go = new GameObject(mf.name + "_canopyGlass");
@@ -745,58 +692,6 @@ namespace EjectionSeats
                 }
             }
             return removed;
-        }
-
-        /// <summary>
-        /// KSP draws hulls from the outside only, so once a canopy is gone you could see straight through the far
-        /// side of the cockpit. This adds the inside of every hull triangle (same texture, reversed winding, but the
-        /// outward normal so it is lit like the outside).
-        /// </summary>
-        public static void AddInsideSurface(MeshFilter mf)
-        {
-            Mesh m = mf.sharedMesh;
-            if (m == null || !m.isReadable || m.name.EndsWith("_inside")) return;
-            var p = new List<Vector3>(); m.GetVertices(p);
-            int n0 = p.Count;
-            var nr = new List<Vector3>(); m.GetNormals(nr);
-            var tg = new List<Vector4>(); m.GetTangents(tg);
-            var u0 = new List<Vector2>(); m.GetUVs(0, u0);
-            var u1 = new List<Vector2>(); m.GetUVs(1, u1);
-            var col = new List<Color>(); m.GetColors(col);
-            if (n0 * 2 > 65000) m.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
-            for (int i = 0; i < n0; i++)
-            {
-                p.Add(p[i]);
-                // keep the outward normal: lit like the paint outside instead of black (the usual back-face fill
-                // trick of cross-section shaders - an inward normal faces away from the sun and renders dark)
-                if (nr.Count == n0) nr.Add(nr[i]);
-                if (tg.Count == n0) tg.Add(tg[i]);
-                if (u0.Count == n0) u0.Add(u0[i]);
-                if (u1.Count == n0) u1.Add(u1[i]);
-                if (col.Count == n0) col.Add(col[i]);
-            }
-            var subs = new List<int[]>();
-            for (int sm = 0; sm < m.subMeshCount; sm++)
-            {
-                if (m.GetTopology(sm) != MeshTopology.Triangles) { subs.Add(null); continue; }
-                int[] t = m.GetTriangles(sm);
-                var both = new int[t.Length * 2];
-                Array.Copy(t, both, t.Length);
-                for (int i = 0; i + 2 < t.Length; i += 3)
-                {
-                    both[t.Length + i] = t[i] + n0; both[t.Length + i + 1] = t[i + 2] + n0; both[t.Length + i + 2] = t[i + 1] + n0;
-                }
-                subs.Add(both);
-            }
-            m.SetVertices(p);
-            if (nr.Count == p.Count) m.SetNormals(nr);
-            if (tg.Count == p.Count) m.SetTangents(tg);
-            if (u0.Count == p.Count) m.SetUVs(0, u0);
-            if (u1.Count == p.Count) m.SetUVs(1, u1);
-            if (col.Count == p.Count) m.SetColors(col);
-            for (int sm = 0; sm < subs.Count; sm++) if (subs[sm] != null) m.SetTriangles(subs[sm], sm);
-            m.name += "_inside";
-            m.RecalculateBounds();
         }
 
         /// <summary>
@@ -857,70 +752,6 @@ namespace EjectionSeats
     {
         public static GameObject Build(Part part, List<HullCutter.Column> cols, EjectionSettings s)
         {
-            return Build(part, cols, s, null);
-        }
-
-        /// <summary>
-        /// Interior geometry that sat right behind a jettisoned glass canopy (the inner canopy frame) goes with it,
-        /// otherwise its dark edges show round the opening. 0 keep, 1 remove, 2 split and test the pieces.
-        /// </summary>
-        /// <summary>
-        /// The opened-up area: under the jettisoned glass canopy (down to <paramref name="depth"/> below it) or
-        /// inside a round escape hole's column.
-        /// </summary>
-        public static Func<Vector3, bool> Zone(OpeningMap opening, List<HullCutter.Column> cols, float depth)
-        {
-            return p => (opening != null && !opening.Empty && opening.UnderCanopy(p, depth)) ||
-                        (cols != null && cols.Count > 0 && HullCutter.InColumn(cols, p));
-        }
-
-        /// <summary>Painted black, painted as glass, or made of a see-through material.</summary>
-        public static bool BlackOrGlass(Material m, Vector2 uv)
-        {
-            if (m == null) return false;
-            if (m.renderQueue >= 2450) return true;
-            string s = m.shader != null ? m.shader.name.ToLowerInvariant() : "";
-            if (s.Contains("alpha") || s.Contains("transparent") || s.Contains("translucent")) return true;
-            return GlassFinder.IsGlassAt(m, uv) || GlassFinder.Luma(m, uv) < 0.22f;
-        }
-
-        static bool SeeThrough(Material m)
-        {
-            if (m == null) return false;
-            if (m.renderQueue >= 2450) return true;
-            string s = m.shader != null ? m.shader.name.ToLowerInvariant() : "";
-            return s.Contains("alpha") || s.Contains("transparent") || s.Contains("translucent");
-        }
-
-        /// <summary>
-        /// Interior parts in the opened-up area: the cabin shell (walls, ceiling, the inner canopy frame) goes with
-        /// the canopy; props (dashboards, instruments, seats) are never touched apart from see-through glass.
-        /// No colour test, so dark interiors are fine.
-        /// </summary>
-        public static int CleanZone(MeshFilter f, Vector3 inside, Func<Vector3, bool> zone, Matrix4x4? spaceToWorld, bool isProp)
-        {
-            if (f == null || zone == null) return 0;
-            return HullCutter.CutTriangles(f, inside,
-                (a, b, c, n) => zone(a) || zone(b) || zone(c) || zone((a + b + c) / 3f) ? 2 : 0,
-                (centre, n, m, uv) => zone(centre) && (!isProp || SeeThrough(m)), null, null, null, spaceToWorld);
-        }
-
-        public static void CutBehindOpening(MeshFilter f, Vector3 inside, OpeningMap opening, Matrix4x4? spaceToWorld)
-        {
-            if (f == null || opening == null || opening.Empty) return;
-            const float depth = 0.08f;   // the inner canopy frame sits just under the glass
-            // only the dark-painted frame goes; panels, dashboards and walls stay whole
-            HullCutter.CutTriangles(f, inside,
-                (a, b, c, n) =>
-                {
-                    bool any = opening.UnderCanopy(a, depth) || opening.UnderCanopy(b, depth) || opening.UnderCanopy(c, depth) || opening.UnderCanopy((a + b + c) / 3f, depth);
-                    return any ? 2 : 0;
-                },
-                (centre, n, m, uv) => opening.UnderCanopy(centre, depth) && GlassFinder.Luma(m, uv) < 0.22f, null, null, null, spaceToWorld);
-        }
-
-        public static GameObject Build(Part part, List<HullCutter.Column> cols, EjectionSettings s, OpeningMap opening)
-        {
             InternalModel im = part.internalModel;
             if (im == null)
             {
@@ -959,7 +790,6 @@ namespace EjectionSeats
                 Vector3 lp = inv * (t.position - im.transform.position);
                 Quaternion lr = inv * t.rotation;
                 var go = new GameObject(mr.name);
-                if (mr.GetComponentInParent<InternalProp>() != null) go.AddComponent<InteriorPropTag>();
                 go.layer = 0;
                 go.transform.SetParent(root.transform, false);
                 go.transform.localPosition = conv * lp;
@@ -981,13 +811,6 @@ namespace EjectionSeats
             // clear the escape column inside the cabin too (overhead panels, ceilings)
             if (cols != null)
                 foreach (var f in filters) HullCutter.Cut(f, cols, s.subdivideEdge, null);
-            var zone = Zone(opening, null, 0.1f);   // round holes are already cut above
-            if (opening != null)
-                foreach (var f in filters)
-                {
-                    try { CleanZone(f, part.transform.position, zone, null, f.GetComponent<InteriorPropTag>() != null); }
-                    catch (Exception e) { Log.Dbg("interior clean: " + e.Message); }
-                }
             Log.Dbg("interior reveal: " + count + " renderers");
             return root;
         }
@@ -1008,11 +831,6 @@ namespace EjectionSeats
         /// </summary>
         public static int CutIVA(Part part, List<HullCutter.Column> cols, EjectionSettings s)
         {
-            return CutIVA(part, cols, s, null);
-        }
-
-        public static int CutIVA(Part part, List<HullCutter.Column> cols, EjectionSettings s, OpeningMap opening)
-        {
             InternalModel im = part.internalModel;
             if (im == null || cols == null) return 0;
             Matrix4x4 m = InternalToWorldMatrix(part, im, s);
@@ -1025,11 +843,6 @@ namespace EjectionSeats
                 if (r == null) continue;
                 try { removed += HullCutter.Cut(mf, cols, s.subdivideEdge, null, m); }
                 catch (Exception e) { Log.Dbg("IVA cut failed on " + mf.name + ": " + e.Message); }
-                if (opening != null)
-                {
-                    try { CleanZone(mf, part.transform.position, Zone(opening, null, 0.1f), m, mf.GetComponentInParent<InternalProp>() != null); }
-                    catch (Exception e) { Log.Dbg("IVA clean failed on " + mf.name + ": " + e.Message); }
-                }
             }
             Log.Dbg("IVA cut: " + removed + " triangles removed");
             return removed;
