@@ -19,7 +19,7 @@ namespace EjectionSeats
         public bool pulled;                // handle pulled (from the catapult firing onwards)
         public ChuteRig chute;
 
-        class Limb { public Transform upper, mid, end, tip; }
+        class Limb { public Transform upper, mid, end, tip, thumb; public float side; }
         Animation anim;
         string chuteClip;
         float nextChuteClip;
@@ -63,6 +63,9 @@ namespace EjectionSeats
             Transform tipL, tipR;
             if (armL != null && bones.TryGetValue("bn_l_mid_a01", out tipL)) armL.tip = tipL;
             if (armR != null && bones.TryGetValue("bn_r_mid_a01", out tipR)) armR.tip = tipR;
+            Transform thL, thR;
+            if (armL != null) { armL.side = 1f; if (bones.TryGetValue("bn_l_thumb_a01", out thL)) armL.thumb = thL; }
+            if (armR != null) { armR.side = -1f; if (bones.TryGetValue("bn_r_thumb_a01", out thR)) armR.thumb = thR; }
             legL = MakeLimb(bones, "bn_l_hip01", "bn_l_knee_a01", "bn_l_foot01");
             legR = MakeLimb(bones, "bn_r_hip01", "bn_r_knee_a01", "bn_r_foot01");
             bones.TryGetValue("bn_spD01", out spine);
@@ -149,6 +152,15 @@ namespace EjectionSeats
             if (cur.sqrMagnitude < 1e-8f) return;
             Quaternion d = Quaternion.FromToRotation(cur, dir);
             l.end.rotation = Quaternion.Slerp(Quaternion.identity, d, w) * l.end.rotation;
+            // twist round the fingers so the thumb points forward and inwards on both hands alike (KSP's seated
+            // animation rolls the two hands differently)
+            if (l.thumb == null) return;
+            Vector3 f = (l.tip.position - l.end.position).normalized;
+            Vector3 th = Vector3.ProjectOnPlane(l.thumb.position - l.end.position, f);
+            Vector3 want = Vector3.ProjectOnPlane(KD(0.6f * l.side, 0f, 0.8f), f);
+            if (th.sqrMagnitude < 1e-10f || want.sqrMagnitude < 1e-10f) return;
+            float twist = Vector3.SignedAngle(th, want, f);
+            l.end.rotation = Quaternion.AngleAxis(twist * w, f) * l.end.rotation;
         }
         void Freefall(float w)
         {

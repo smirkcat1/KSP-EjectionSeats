@@ -164,8 +164,8 @@ const round = (a) => a.map(v => Math.round(v * 10000) / 10000);
 
 // ---------------------------------------------------------------- rig parts the poses use (same names as KerbalPoser)
 const ARM = {
-  L: { upper: byName['bn_l_arm01 1'], mid: byName['bn_l_elbow_a01'], end: byName['bn_l_wrist01'], tip: byName['bn_l_mid_a01'] },
-  R: { upper: byName['bn_r_arm01 1'], mid: byName['bn_r_elbow_a01'], end: byName['bn_r_wrist01'], tip: byName['bn_r_mid_a01'] },
+  L: { upper: byName['bn_l_arm01 1'], mid: byName['bn_l_elbow_a01'], end: byName['bn_l_wrist01'], tip: byName['bn_l_mid_a01'], thumb: byName['bn_l_thumb_a01'], side: 1 },
+  R: { upper: byName['bn_r_arm01 1'], mid: byName['bn_r_elbow_a01'], end: byName['bn_r_wrist01'], tip: byName['bn_r_mid_a01'], thumb: byName['bn_r_thumb_a01'], side: -1 },
 };
 const SPINE = byName['bn_spD01'], NECK = byName['bn_neck01'];
 if (!ARM.L.upper || !ARM.R.upper || !ARM.L.tip || !SPINE || !NECK) { statusEl.textContent = 'This kerbal rig is not the stock one; poses cannot be edited.'; return; }
@@ -195,6 +195,20 @@ function aimHand(l, dir) {
   const curDir = kPos(l.tip).sub(kPos(l.end));
   if (curDir.lengthSq() < 1e-10) return;
   setKQuat(l.end, fromTo(curDir, dir).multiply(kQuat(l.end)));
+  // twist round the fingers so the thumb points forward and inwards on both hands alike (same as the mod)
+  if (!l.thumb) return;
+  const f = kPos(l.tip).sub(kPos(l.end)).normalize();
+  const th = kPos(l.thumb).sub(kPos(l.end)); th.sub(f.clone().multiplyScalar(th.dot(f)));
+  const want = new THREE.Vector3(0.6 * l.side, 0, 0.8); want.sub(f.clone().multiplyScalar(want.dot(f)));
+  if (th.lengthSq() < 1e-10 || want.lengthSq() < 1e-10) return;
+  th.normalize(); want.normalize();
+  let ang = Math.acos(Math.min(1, Math.max(-1, th.dot(want))));
+  if (new THREE.Vector3().crossVectors(th, want).dot(f) < 0) ang = -ang;
+  setKQuat(l.end, new THREE.Quaternion().setFromAxisAngle(f, ang).multiply(kQuat(l.end)));
+}
+function mirrorSolution(r) {
+  const m = (v) => new THREE.Vector3(-v.x, v.y, v.z);
+  return Object.assign({}, r, { S: m(r.S), E: m(r.E), W: m(r.W), hand: m(r.hand) });
 }
 
 // ---------------------------------------------------------------- obstacles: the kerbal's own surface (not the arms) + the seat
@@ -340,7 +354,8 @@ function update() {
   if (symmetric()) c.R = mirrorArm(c.L);
   resetPose(); brace();
   for (const s of ['L', 'R']) {
-    solved[s] = solveArm(s, c[s]);
+    // with symmetry on, the right arm is the exact mirror of the solved left arm
+    solved[s] = (s === 'R' && symmetric()) ? mirrorSolution(solved.L) : solveArm(s, c[s]);
     // apply to the real bones, the same way the mod does (pole = the chosen elbow)
     solve(ARM[s], solved[s].W, solved[s].E);
     aimHand(ARM[s], solved[s].hand);
@@ -441,8 +456,10 @@ function exportData() {
       const c = data[k][st];
       if (POSES[k].sym && symBox.checked) c.R = mirrorArm(c.L);
       resetPose(); brace();
+      let left = null;
       for (const s of ['L', 'R']) {
-        const r = solveArm(s, c[s]);
+        const r = (s === 'R' && POSES[k].sym && symBox.checked) ? mirrorSolution(left) : solveArm(s, c[s]);
+        if (s === 'L') left = r;
         out.poses[k][st][s] = { wrist: round(arr(r.W)), elbow: round(arr(r.E)), handDir: round(arr(r.hand)), clips: r.deepArm > 0.004 || r.deepHand > 0.004 };
       }
     }
