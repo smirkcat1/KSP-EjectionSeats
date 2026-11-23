@@ -430,6 +430,19 @@ namespace EjectionSeats
             }
         }
 
+        /// <summary>A point on the left (0) or right (1) riser, "along" metres up from its root on the pack.</summary>
+        public Vector3 RiserPoint(int side, float along)
+        {
+            Vector3 c = AttachCenter;
+            Vector3 right = kerbal != null ? kerbal.right : transform.right;
+            Vector3 b = side == 0 ? c - right * attachSpread : c + right * attachSpread;
+            Vector3 t = transform.TransformPoint(new Vector3(side == 0 ? -LinkSpread : LinkSpread, 0f, 0f));
+            Vector3 d = t - b;
+            return d.sqrMagnitude > 1e-6f ? b + d.normalized * along : b;
+        }
+
+        public Vector3 CanopyCenter { get { return canopy != null ? canopy.position : transform.position; } }
+
         /// <summary>Riser tops = attach point + riser length along the canopy axis.</summary>
         void Follow()
         {

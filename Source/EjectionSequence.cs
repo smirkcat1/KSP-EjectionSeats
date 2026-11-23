@@ -26,10 +26,13 @@ namespace EjectionSeats
         public Vector3 localStart, localDir, localFwd;   // in cockpit space
         public List<Collider> vesselColliders = new List<Collider>();
 
+        /// <summary>Current step of the sequence (sit, rail, burn, coast, freefall, chute, landed).</summary>
+        public string Phase { get; private set; }
         GameObject seat;
         SeatRocketFX fx;
         Animation anim;
         ChuteRig chute;
+        KerbalPoser poser;
         SeatInteriorMirror interiorMirror;
         Rigidbody rb;
         bool done;
@@ -281,6 +284,7 @@ namespace EjectionSeats
         void OnDestroy()
         {
             running.Remove(this);
+            if (poser != null) Destroy(poser);
             // never leave a kerbal without its controller
             if (eva != null && !eva.enabled) eva.enabled = true;
             Unshield();
@@ -560,6 +564,7 @@ namespace EjectionSeats
             // take over from the EVA state machine while we drive the kerbal
             eva.enabled = false;
             anim = eva.GetComponentInChildren<Animation>();
+            if (S.kerbalPoses) poser = KerbalPoser.Attach(eva, KerbalPoser.GripFor(variant != null ? variant.id : ""));
             if (S.debug && anim != null)
             {
                 var names = new List<string>();
@@ -583,6 +588,9 @@ namespace EjectionSeats
             catch (Exception e) { Log.Dbg("interior mirror failed: " + e.Message); }
 
             // ---- 1. sit down / brace ----
+
+            Phase = "sit";
+            if (poser != null) poser.mode = KerbalPoser.Mode.Brace;
             // kerbal starts a little above and ahead of the seat cushion and settles in; the seat itself
             // stays fixed in the cockpit (its local offset counter-moves the kerbal's lift)
             Play(S.animBrace, 0f);
@@ -610,6 +618,9 @@ namespace EjectionSeats
             seat.transform.localPosition = seatOffset;
 
             // ---- 2. catapult rail ----
+
+            Phase = "rail";
+            if (poser != null) poser.pulled = true;
             Vector3 seatBase = seat.transform.position;
             Burst.Smoke(seatBase, -transform.up, 25, 0.35f, 4f, 1.2f, new Color(0.85f, 0.85f, 0.85f, 0.8f));
             Burst.Flash(seatBase, 5f, 0.25f);
@@ -632,6 +643,8 @@ namespace EjectionSeats
             if (!plume) { fx.SetThrust(true); plume = true; }
 
             // ---- 3. free rocket burn ----
+
+            Phase = "burn";
             // taken from the cockpit, not the kerbal: another crew member spawning can knock the kerbal's own
             // attitude for a step, and holding that would fire the rocket in the wrong direction
             Quaternion hold = CockpitAlive ? CockpitRot : rb.rotation;
@@ -652,6 +665,8 @@ namespace EjectionSeats
             burning = false;
 
             // ---- 4. coast: the drogue pitches the seat back gently ----
+
+            Phase = "coast";
             t = 0f;
             float restoreAt = S.restoreCollisionsAfter;
             float sinceStart = burn;
@@ -668,6 +683,9 @@ namespace EjectionSeats
             }
 
             // ---- 5. seat / man separation ----
+
+            Phase = "freefall";
+            if (poser != null) poser.mode = KerbalPoser.Mode.Freefall;
             Separate();
             Play(S.animFreefall, 0.3f);
 
@@ -685,6 +703,8 @@ namespace EjectionSeats
             }
 
             // ---- 6. parachute ----
+
+            Phase = "chute";
             Vessel vsl = eva.vessel;
             if (vsl == null || vsl.LandedOrSplashed || vsl.atmDensity < S.chuteMinDensity)
             {
@@ -696,6 +716,7 @@ namespace EjectionSeats
             // canopies of C.A.N.O.P.I.E.S. - then apply to it automatically.
             if (UseEvaChute() && DeployEvaChute())
             {
+                if (poser != null) poser.mode = KerbalPoser.Mode.None;
                 while (eva != null && eva.vessel != null && !eva.vessel.LandedOrSplashed && !eva.part.GroundContact && !eva.part.WaterContact)
                 {
                     sinceStart += Time.fixedDeltaTime;
@@ -707,6 +728,7 @@ namespace EjectionSeats
                 yield break;
             }
             DeployChute();
+            if (poser != null) { poser.chute = chute; poser.mode = KerbalPoser.Mode.Chute; }
             float mass = rb.mass;
             float cdA = (float)(2.0 * mass * 1000.0 * 9.81 / (1.225 * S.chuteDescentRate * S.chuteDescentRate));
             float settled = 0f;
@@ -736,6 +758,7 @@ namespace EjectionSeats
                 if (!handedOver && agl >= 0f && agl < S.handoverAltitude)
                 {
                     handedOver = true;
+                    if (poser != null) poser.mode = KerbalPoser.Mode.None;
                     eva.enabled = true;
                     ForceRecover();
                     Unshield();   // KSP aero + landing handling from here
@@ -765,6 +788,8 @@ namespace EjectionSeats
             }
 
             // ---- 7. touchdown: chute removed immediately ----
+
+            Phase = "landed";
             if (chute != null) Destroy(chute.gameObject);
             chute = null;
             if (!handedOver) Play(S.animLanded, 0.4f);
