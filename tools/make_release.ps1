@@ -2,7 +2,7 @@
 # Usage:  powershell -ExecutionPolicy Bypass -File tools\make_release.ps1 [-KspDir "C:\path\to\Kerbal Space Program"]
 param([string]$KspDir = "C:\Program Files (x86)\Steam\steamapps\common\Kerbal Space Program")
 $ErrorActionPreference = "Stop"
-$VERSION = "1.1.0"             # keep in step with Source\AssemblyInfo.cs
+$VERSION = "1.1.1"             # keep in step with Source\AssemblyInfo.cs
 $KSP_VERSION = "1.12.5"; $KSP_MIN = "1.12.0"; $KSP_MAX = "1.12.99"
 
 $root = Split-Path $PSScriptRoot -Parent

@@ -23,6 +23,10 @@ namespace EjectionSeats
         public float chuteDelay;
         public float chuteOpenTime = 2f;
         public float startDelay;    // time strapped in before the seat fires (canopy jettison, seat order)
+        public bool hasIvaPelvis;   // where the kerbal's pelvis was in the IVA seat (cockpit space)
+        public Vector3 ivaPelvisLocal;
+        Vector3 fitPelvis;          // pelvis in the EVA kerbal's own frame, seated pose
+        bool fitOk;
         public string chuteType = "auto";   // auto | seat | eva
         public Vector3 localStart, localDir, localFwd;   // in cockpit space
         public List<Collider> vesselColliders = new List<Collider>();
@@ -469,6 +473,7 @@ namespace EjectionSeats
                         " -> offset " + offset.ToString("F3"));
                 // sanity: never wildly off
                 if (offset.magnitude > 1.2f) return false;
+                fitPelvis = pl; fitOk = true;
                 return true;
             }
             catch (Exception e) { Log.Dbg("seat fit failed: " + e.Message); return false; }
@@ -615,6 +620,15 @@ namespace EjectionSeats
             seatOffset = S.kerbalSeatOffset;
             Vector3 fit;
             if (S.autoFitKerbal && TryFitSeat(out fit)) seatOffset = fit + S.kerbalFitAdjust;
+            // The EVA kerbal's origin sits at a different height in the body than the IVA kerbal's, so start from
+            // where the IVA kerbal's pelvis actually was: kerbal and seat then line up with the cockpit's own seat.
+            if (hasIvaPelvis && fitOk)
+            {
+                Vector3 newStart = ivaPelvisLocal - Quaternion.LookRotation(localFwd, localDir) * fitPelvis;
+                Vector3 shift = newStart - localStart;
+                if (shift.magnitude < 0.5f) { Log.Dbg("aligned to the IVA kerbal: start moved " + shift.ToString("F3")); localStart = newStart; }
+                else Log.Dbg("IVA pelvis " + shift.magnitude.ToString("F2") + " m from the seat start - not aligned");
+            }
             seat.transform.localPosition = seatOffset;
             fx = SeatRocketFX.Create(seat, model.nozzles, S, variant);
             HideGear();
@@ -1006,6 +1020,8 @@ namespace EjectionSeats
                 // the EVA kerbal inherits these when it spawns
                 pcm.hasHelmetOn = true;
                 pcm.hasNeckRingOn = true;
+                Vector3 ivaPelvis;
+                bool hasIvaPelvis = TryIvaPelvis(part, pcm, S, out ivaPelvis);   // before the IVA kerbal goes away
                 KerbalEVA eva = Spawn(part, pcm, pose);
                 if (eva == null)
                 {
@@ -1031,6 +1047,8 @@ namespace EjectionSeats
                 seq.localDir = localDir;
                 seq.localFwd = localFwd;
                 seq.vesselColliders = vesselColliders;
+                seq.hasIvaPelvis = hasIvaPelvis;
+                seq.ivaPelvisLocal = ivaPelvis;
                 seq.startDelay = S.sitDownTime + S.prepTime + ejected.Count * S.sequenceInterval;
                 ejected.Add(eva);
                 yield return null;
@@ -1051,6 +1069,29 @@ namespace EjectionSeats
                 }
             }
             Destroy(gameObject, 1f);
+        }
+
+        /// <summary>The IVA kerbal's pelvis, in cockpit space.</summary>
+        static bool TryIvaPelvis(Part part, ProtoCrewMember pcm, EjectionSettings S, out Vector3 local)
+        {
+            local = Vector3.zero;
+            try
+            {
+                Kerbal k = pcm.KerbalRef;
+                InternalModel im = part.internalModel;
+                if (k == null || im == null) return false;
+                Transform pelvis = null;
+                foreach (var t in k.GetComponentsInChildren<Transform>(true))
+                {
+                    if (t.name == "bn_spA01") { pelvis = t; break; }
+                    if (pelvis == null && t.name.ToLowerInvariant().Contains("pelvis")) pelvis = t;
+                }
+                if (pelvis == null) return false;
+                Vector3 world = InteriorReveal.InternalToWorldMatrix(part, im, S).MultiplyPoint3x4(pelvis.position);
+                local = part.transform.InverseTransformPoint(world);
+                return true;
+            }
+            catch (Exception e) { Log.Dbg("IVA pelvis: " + e.Message); return false; }
         }
 
         static SeatPose PoseFor(EjectionPlan plan, ProtoCrewMember pcm, ref int cursor)

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.1
+
+* Fixed the ejection seat (and the kerbal in it) starting about 20 cm below the cockpit's own seat. The kerbal now
+  starts exactly where they were sitting in the IVA, in any cockpit.
+
 ## 1.1.0
 
 * Kerbals now ride the seat in a braced ejecting pose, with the arms solved so the hands stay clear of the body.
