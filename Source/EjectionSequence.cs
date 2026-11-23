@@ -446,10 +446,11 @@ namespace EjectionSeats
                 st.enabled = true; st.weight = 1f; st.normalizedTime = 0.25f;
                 anim.Sample();
 
-                Transform pelvis = null, hipL = null, hipR = null, pack = null;
+                Transform pelvis = null, hipL = null, hipR = null, pack = null, spine = null;
                 foreach (Transform t in eva.GetComponentsInChildren<Transform>(true))
                 {
                     if (t.GetComponentInParent<EjectionGenerated>() != null) continue;
+                    if (spine == null && t.name == "bn_spA01") spine = t;
                     string n = t.name.ToLowerInvariant();
                     if (pelvis == null && n.Contains("pelvis")) pelvis = t;
                     else if (hipL == null && n.Contains("hip") && (n.Contains("_l") || n.Contains("l_") || n.Contains("left"))) hipL = t;
@@ -473,7 +474,10 @@ namespace EjectionSeats
                         " -> offset " + offset.ToString("F3"));
                 // sanity: never wildly off
                 if (offset.magnitude > 1.2f) return false;
-                fitPelvis = pl; fitOk = true;
+                // line up with the IVA kerbal by the same bone it is measured by (TryIvaPelvis)
+                fitPelvis = spine != null ? transform.InverseTransformPoint(spine.position) : pl;
+                Log.Dbg("seat fit: spine base " + (spine != null ? fitPelvis.ToString("F3") : "not found") + ", hips " + pl.ToString("F3"));
+                fitOk = true;
                 return true;
             }
             catch (Exception e) { Log.Dbg("seat fit failed: " + e.Message); return false; }
@@ -662,6 +666,17 @@ namespace EjectionSeats
                 seat.transform.localPosition = seatOffset - liftLocal * (1f - e);
                 HoldG();
                 Trace("sit");
+                if (S.debug && hasIvaPelvis && t >= 0.4f && t - dt < 0.4f && CockpitAlive)
+                {
+                    foreach (Transform bt in eva.GetComponentsInChildren<Transform>(true))
+                        if (bt.name == "bn_spA01")
+                        {
+                            Vector3 now = cockpit.transform.InverseTransformPoint(bt.position);
+                            Log.Info("sit check: EVA spine " + now.ToString("F3") + " IVA spine " + ivaPelvisLocal.ToString("F3") + " diff " + (now - ivaPelvisLocal).ToString("F3") +
+                                     " cockpit up(local) " + cockpit.transform.InverseTransformDirection(CockpitRot * Vector3.up).ToString("F2"));
+                            break;
+                        }
+                }
                 yield return new WaitForFixedUpdate();
             }
             seat.transform.localPosition = seatOffset;
@@ -1230,31 +1245,12 @@ namespace EjectionSeats
                 }
                 r.enabled = false;
             }
-            // canopy glass painted into the hull (found like RealWindows does): taken off along the panes' outline
-            GlassFinder.Result glass = null;
-            if (S.glassCanopy && plan.canopy.Count == 0)
-            {
-                try { glass = GlassFinder.Find(part, plan, S); }
-                catch (Exception e) { Log.Warn("glass search failed: " + e.Message); }
-                if (glass != null) Log.Info("canopy glass: " + (glass.found ? "found, " : "not found, ") + glass.how);
-            }
-            bool needHole = glass == null || !glass.found || !glass.Covers(plan.columns);
-            Vector3 inside = part.transform.position;
             foreach (var mf in part.FindModelComponents<MeshFilter>())
             {
                 if (mf == null || canopySet.Contains(mf) || mf.GetComponentInParent<EjectionGenerated>() != null) continue;
                 var r = mf.GetComponent<MeshRenderer>();
                 if (r == null || !r.enabled || !mf.gameObject.activeInHierarchy) continue;
                 if (InteriorReveal.IsDepthMask(r)) { r.enabled = false; continue; }
-                if (glass != null && glass.found)
-                {
-                    // with RealWindows the cockpit's windows are see-through, so the jettisoned canopy's are too
-                    Material pane = SeatInteriorMirror.Installed && debrisRoot != null ? MatLib.CanopyGlass : null;
-                    try { HullCutter.CutTriangles(mf, inside, (a, b, c, n) => glass.Contains((a + b + c) / 3f, n), debrisRoot, pane); }
-                    catch (Exception e) { Log.Warn("glass cut failed on " + mf.name + ": " + e.Message); }
-                }
-                // round hole where the glass doesn't already open the way out (or there was no glass)
-                if (!needHole) continue;
                 try { HullCutter.Cut(mf, plan.columns, S.subdivideEdge, debrisRoot); }
                 catch (Exception e) { Log.Warn("cut failed on " + mf.name + ": " + e.Message); }
             }
