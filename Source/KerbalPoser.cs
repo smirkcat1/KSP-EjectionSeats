@@ -19,7 +19,7 @@ namespace EjectionSeats
         public bool pulled;                // handle pulled (from the catapult firing onwards)
         public ChuteRig chute;
 
-        class Limb { public Transform upper, mid, end; }
+        class Limb { public Transform upper, mid, end, tip; }
         Animation anim;
         string chuteClip;
         float nextChuteClip;
@@ -60,6 +60,9 @@ namespace EjectionSeats
             foreach (var t in GetComponentsInChildren<Transform>(true)) if (!bones.ContainsKey(t.name)) bones[t.name] = t;
             armL = MakeLimb(bones, "bn_l_arm01 1", "bn_l_elbow_a01", "bn_l_wrist01");
             armR = MakeLimb(bones, "bn_r_arm01 1", "bn_r_elbow_a01", "bn_r_wrist01");
+            Transform tipL, tipR;
+            if (armL != null && bones.TryGetValue("bn_l_mid_a01", out tipL)) armL.tip = tipL;
+            if (armR != null && bones.TryGetValue("bn_r_mid_a01", out tipR)) armR.tip = tipR;
             legL = MakeLimb(bones, "bn_l_hip01", "bn_l_knee_a01", "bn_l_foot01");
             legR = MakeLimb(bones, "bn_r_hip01", "bn_r_knee_a01", "bn_r_foot01");
             bones.TryGetValue("bn_spD01", out spine);
@@ -107,36 +110,46 @@ namespace EjectionSeats
             Turn(spine, transform.right, -6f * w);
             Turn(neck, transform.right, 5f * w);
 
-            Vector3 lT, rT, lPole, rPole;
-            bool useL = true, useR = true;
+            // Targets are wrist positions; each hand is then aimed so it lies on the leg or hangs beside the seat
+            // instead of pushing into the suit. Kerbal arms are short (about 0.17 m to the wrist).
+            Vector3 lT, rT, lPole, rPole, lHand, rHand;
             float p = pull;
+            Vector3 down = KD(0f, -1f, 0.15f), onKnee = KD(0f, -0.55f, 1f);
             switch (grip)
             {
-                case "overhead":   // face blind: both hands up at the helmet front, pulled down and forward
-                    lT = K(-0.05f, 0.215f - 0.04f * p, 0.11f + 0.03f * p); rT = K(0.05f, 0.215f - 0.04f * p, 0.11f + 0.03f * p);
-                    lPole = K(-0.3f, 0.05f, 0.05f); rPole = K(0.3f, 0.05f, 0.05f);
+                case "sides":      // a handle each side of the seat pan, outside the thighs, pulled up
+                    lT = K(-0.128f, -0.06f + 0.03f * p, 0f); rT = K(0.128f, -0.06f + 0.03f * p, 0f);
+                    lPole = K(-0.35f, 0f, -0.25f); rPole = K(0.35f, 0f, -0.25f);
+                    lHand = down; rHand = down;
                     break;
-                case "sides":      // a handle each side of the seat pan, pulled up
-                    lT = K(-0.105f, -0.115f + 0.035f * p, 0.03f); rT = K(0.105f, -0.115f + 0.035f * p, 0.03f);
-                    lPole = K(-0.25f, -0.05f, -0.3f); rPole = K(0.25f, -0.05f, -0.3f);
-                    break;
-                case "lever_r":    // right hand pulls the lever back, left hand on the thigh
-                    rT = K(0.11f, -0.095f + 0.02f * p, 0.02f - 0.05f * p); rPole = K(0.25f, -0.05f, -0.3f);
-                    lT = K(-0.05f, -0.06f, 0.02f); lPole = K(-0.25f, -0.1f, -0.2f);
+                case "lever_r":    // right hand on the lever beside the seat, pulled back; left hand resting on the thigh
+                    rT = K(0.128f, -0.06f + 0.015f * p, -0.04f * p); rPole = K(0.35f, 0f, -0.25f); rHand = down;
+                    lT = K(-0.05f, 0.0f, -0.03f); lPole = K(-0.35f, -0.05f, -0.1f); lHand = onKnee;
                     break;
                 case "lever_l":
-                    lT = K(-0.11f, -0.095f + 0.02f * p, 0.02f - 0.05f * p); lPole = K(-0.25f, -0.05f, -0.3f);
-                    rT = K(0.05f, -0.06f, 0.02f); rPole = K(0.25f, -0.1f, -0.2f);
+                    lT = K(-0.128f, -0.06f + 0.015f * p, -0.04f * p); lPole = K(-0.35f, 0f, -0.25f); lHand = down;
+                    rT = K(0.05f, 0.0f, -0.03f); rPole = K(0.35f, -0.05f, -0.1f); rHand = onKnee;
                     break;
-                default:           // loop between the knees, pulled up towards the chest
-                    lT = K(-0.014f, -0.075f + 0.04f * p, 0.04f - 0.01f * p); rT = K(0.014f, -0.075f + 0.04f * p, 0.04f - 0.01f * p);
-                    lPole = K(-0.2f, -0.2f, -0.15f); rPole = K(0.2f, -0.2f, -0.15f);
+                default:           // loop at the knees: hands together on top of the knees, pulled up towards the chest
+                    lT = K(-0.04f, -0.005f + 0.025f * p, -0.005f - 0.015f * p); rT = K(0.04f, -0.005f + 0.025f * p, -0.005f - 0.015f * p);
+                    lPole = K(-0.35f, -0.05f, -0.1f); rPole = K(0.35f, -0.05f, -0.1f);
+                    lHand = onKnee; rHand = onKnee;
                     break;
             }
-            if (useL) Solve(armL, lT, lPole, w);
-            if (useR) Solve(armR, rT, rPole, w);
+            Solve(armL, lT, lPole, w);
+            Solve(armR, rT, rPole, w);
+            AimHand(armL, lHand, w);
+            AimHand(armR, rHand, w);
         }
 
+        void AimHand(Limb l, Vector3 dir, float w)
+        {
+            if (l == null || l.tip == null || w <= 0f) return;
+            Vector3 cur = l.tip.position - l.end.position;
+            if (cur.sqrMagnitude < 1e-8f) return;
+            Quaternion d = Quaternion.FromToRotation(cur, dir);
+            l.end.rotation = Quaternion.Slerp(Quaternion.identity, d, w) * l.end.rotation;
+        }
         void Freefall(float w)
         {
             // KSP's own animation does the body; just keep the head up, looking ahead
