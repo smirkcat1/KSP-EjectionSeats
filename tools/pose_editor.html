@@ -6,399 +6,448 @@
 <title>Ejection Pose Editor</title>
 <style>
 :root {
-  --bg: #f4f2ee; --panel: #ffffff; --ink: #1d1f22; --muted: #6b6f76; --line: #d9d6cf;
-  --suit: #e9e7e2; --suitEdge: #8a8d93; --helmet: rgba(120,170,220,0.18); --helmetEdge: #6f8fb0;
-  --bone: #2b2f36; --left: #2f7de1; --right: #e0632f; --bad: #d22; --handle: #e2b400; --seat: #b9b4aa;
+  --bg: #eef0f2; --panel: #ffffff; --ink: #1d1f22; --muted: #5f646b; --line: #d5d8dc;
+  --bad: #d22; --accent: #2f7de1;
 }
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #17191c; --panel: #202327; --ink: #e9e9ea; --muted: #9aa0a8; --line: #33373d;
-    --suit: #3a3e44; --suitEdge: #8c929b; --helmet: rgba(120,170,220,0.16); --helmetEdge: #7fa3c7;
-    --bone: #e3e5e8; --seat: #4a4e55;
-  }
+  :root { --bg: #15171a; --panel: #1f2226; --ink: #e9e9ea; --muted: #9aa0a8; --line: #343840; }
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
-header { padding: 14px 18px 6px; }
-h1 { font-size: 18px; margin: 0 0 2px; }
-header p { margin: 0; color: var(--muted); max-width: 900px; }
-.bar { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding: 10px 18px; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+body { display: flex; flex-direction: column; }
+header { padding: 10px 16px 0; }
+h1 { font-size: 17px; margin: 0; }
+header p { margin: 2px 0 0; color: var(--muted); }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 8px 16px; }
 .bar label { display: inline-flex; gap: 6px; align-items: center; }
 select, button { font: inherit; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
-button.primary { background: #2f7de1; color: #fff; border-color: #2f7de1; }
-.views { display: flex; flex-wrap: wrap; gap: 14px; padding: 4px 18px 18px; }
-.view { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
-.view h2 { font-size: 13px; margin: 0 0 6px; color: var(--muted); font-weight: 600; }
-canvas { display: block; touch-action: none; max-width: 100%; }
-.status { padding: 0 18px 8px; color: var(--muted); min-height: 1.4em; }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.status { padding: 0 16px 6px; color: var(--muted); min-height: 1.4em; }
 .status b.bad { color: var(--bad); }
-.legend { display: flex; gap: 14px; flex-wrap: wrap; padding: 0 18px 14px; color: var(--muted); font-size: 13px; }
-.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
-textarea { width: calc(100% - 36px); margin: 0 18px 18px; height: 120px; font: 12px ui-monospace, Consolas, monospace; background: var(--panel); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+#stage { flex: 1; min-height: 420px; position: relative; margin: 0 16px 16px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--panel); }
+#stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.hint { position: absolute; left: 10px; bottom: 8px; color: var(--muted); font-size: 12px; pointer-events: none; }
+.missing { padding: 30px; max-width: 760px; }
+code { background: rgba(127,127,127,0.15); padding: 1px 5px; border-radius: 4px; }
 </style>
 </head>
 <body>
 <header>
   <h1>Ejection pose editor</h1>
-  <p>Drag the big dots (wrists) and the small dots (hand tips) in either view. Elbows and hands pick the way round that
-     doesn't go through the kerbal; anything still clipping turns red. Every pose has a resting and a pulled version
-     (the handle being pulled as the seat fires). Save the file and send it over to put the poses in the mod.</p>
+  <p>Drag the big dots (wrists) and the small dots (hand tips). Drag empty space to orbit, right-drag to pan,
+     scroll to zoom. Elbows and hands take the way round that stays clear of the kerbal and the seat; anything
+     still clipping is marked red. Save the file and send it over.</p>
 </header>
 <div class="bar">
   <label>Pose <select id="pose"></select></label>
   <label>State <select id="state"><option value="rest">Resting on the handle</option><option value="pulled">Handle pulled</option></select></label>
-  <label><input type="checkbox" id="sym" checked> Symmetry (left and right mirror)</label>
-  <label>Editing side <select id="side"><option value="L">Left hand</option><option value="R">Right hand</option></select></label>
+  <label><input type="checkbox" id="sym" checked> Symmetry</label>
+  <label><input type="checkbox" id="ghost"> See-through body</label>
+  <button id="front">Front</button><button id="side">Side</button>
   <button id="reset">Reset this pose</button>
   <button id="load">Load file…</button>
-  <button id="copy">Copy</button>
   <button class="primary" id="save">Save pose file</button>
   <input type="file" id="file" accept=".json,application/json" hidden>
 </div>
-<div class="status" id="status"></div>
-<div class="views">
-  <div class="view"><h2>Front – looking at the kerbal (their left hand is on your right)</h2><canvas id="front" width="560" height="600"></canvas></div>
-  <div class="view"><h2>Side – from the kerbal's left, facing right →</h2><canvas id="sideView" width="560" height="600"></canvas></div>
-</div>
-<div class="legend">
-  <span><span class="dot" style="background:var(--left)"></span>left arm</span>
-  <span><span class="dot" style="background:var(--right)"></span>right arm</span>
-  <span><span class="dot" style="background:var(--handle)"></span>seat handle (where the hand should be)</span>
-  <span><span class="dot" style="background:var(--bad)"></span>still clipping</span>
-</div>
-<textarea id="out" readonly></textarea>
+<div class="status" id="status">Loading…</div>
+<div id="stage"><div class="hint">Blue = left arm, orange = right arm, yellow ring = the seat's handle</div></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="pose_editor_model.js"></script>
 <script>
-// ---------------------------------------------------------------- kerbal model (kerbal-local metres: x right, y up, z forward)
-// Joint positions measured from the stock rig in the seated pose (EVA kerbal, Ejection Seats 1.0).
-const RIG = {
-  shoulder: [-0.082, 0.049, -0.088],   // left; right is mirrored
-  upper: 0.088, fore: 0.090, hand: 0.085,
-  hip: [-0.064, -0.076, -0.056], knee: [-0.078, -0.069, -0.001], foot: [-0.078, -0.134, 0.026],
-};
-// Collision shapes approximating the suit and helmet (spheres and capsules), plus the seat surfaces.
-const BODY = [
-  { kind: 'sphere', c: [0, 0.255, -0.035], r: 0.165, name: 'helmet' },
-  { kind: 'capsule', a: [-0.012, -0.06, -0.072], b: [0.012, -0.06, -0.072], r: 0.06, name: 'hips' },
-  { kind: 'capsule', a: [0, -0.05, -0.078], b: [0, 0.06, -0.088], r: 0.055, name: 'torso' },
-  { kind: 'capsule', a: [-0.064, -0.074, -0.05], b: [-0.078, -0.069, 0.0], r: 0.033, name: 'left thigh' },
-  { kind: 'capsule', a: [0.064, -0.074, -0.05], b: [0.078, -0.069, 0.0], r: 0.033, name: 'right thigh' },
-  { kind: 'capsule', a: [-0.078, -0.069, 0.0], b: [-0.078, -0.134, 0.026], r: 0.03, name: 'left shin' },
-  { kind: 'capsule', a: [0.078, -0.069, 0.0], b: [0.078, -0.134, 0.026], r: 0.03, name: 'right shin' },
-  { kind: 'capsule', a: [-0.025, 0.02, -0.17], b: [0.025, 0.02, -0.17], r: 0.06, name: 'backpack' },
-];
-const SEAT = { panY: -0.2, backZ: -0.205 };   // seat pan top and back cushion front (kerbal-local)
-const LIMB_R = { upper: 0.022, fore: 0.02, hand: 0.018 };
+(function () {
+'use strict';
+const statusEl = document.getElementById('status');
+if (!window.THREE) { statusEl.textContent = 'Could not load three.js (needs an internet connection the first time).'; return; }
+if (!window.KERBAL_MODEL) {
+  document.getElementById('stage').innerHTML =
+    '<div class="missing"><h2>Kerbal model not found</h2><p>The editor needs <code>pose_editor_model.js</code> next to this file. ' +
+    'It is exported from your own KSP install by the development flight test: run<br><code>tools\\devflight\\run.ps1 -Out &lt;folder&gt; -Dump 1</code><br>' +
+    'and copy <code>pose_editor_model.js</code> from that folder into <code>tools</code>.</p></div>';
+  statusEl.textContent = '';
+  return;
+}
+const M = window.KERBAL_MODEL;
 
-// handle positions per pose (what the hands grip), for reference only
+// ---------------------------------------------------------------- scene
+// All rig maths happens in the kerbal's own frame with Unity's numbers ("K space": x right, y up, z forward).
+// The rig sits under a z-mirrored group so it shows the right way round in three.js.
+const stage = document.getElementById('stage');
+const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(window.devicePixelRatio || 1);
+stage.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(32, 1, 0.01, 20);
+const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.07, -0.02);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x5a5f66, 0.85));
+const sun = new THREE.DirectionalLight(0xffffff, 0.75); sun.position.set(0.6, 1.2, -1.0); scene.add(sun);
+const fill = new THREE.DirectionalLight(0xffffff, 0.3); fill.position.set(-1, 0.4, 0.8); scene.add(fill);
+
+const rig = new THREE.Group(); rig.scale.set(1, 1, -1); scene.add(rig);
+const rigInv = new THREE.Matrix4().makeScale(1, 1, -1);   // its own inverse
+
+// ---------------------------------------------------------------- build the kerbal
+const nodes = M.nodes.map(n => {
+  const b = new THREE.Bone(); b.name = n.n;
+  b.position.fromArray(n.t); b.quaternion.fromArray(n.r); b.scale.fromArray(n.s);
+  return b;
+});
+M.nodes.forEach((n, i) => { (n.p < 0 ? rig : nodes[n.p]).add(nodes[i]); });
+const base = nodes.map(b => ({ p: b.position.clone(), q: b.quaternion.clone() }));
+const byName = {}; nodes.forEach(b => { if (!byName[b.name]) byName[b.name] = b; });
+
+const materials = [];
+function mat(color, alpha, skinning) {
+  const m = new THREE.MeshStandardMaterial({ color, roughness: 0.75, metalness: 0.0, side: THREE.DoubleSide,
+    transparent: alpha < 1, opacity: alpha, depthWrite: alpha >= 1, skinning: !!skinning });
+  m.userData.alpha = alpha; materials.push(m); return m;
+}
+function colorFor(name, c) {
+  const n = name.toLowerCase();
+  if (n.includes('pupil')) return '#141414';
+  if (n.includes('teeth')) return '#f2f0e6';
+  return c;
+}
+const skinned = [];
+for (const s of M.skinned) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(s.v, 3));
+  g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(s.bi, 4));
+  g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(s.bw, 4));
+  g.setIndex(s.tri);
+  g.computeVertexNormals();
+  const bones = s.bones.map(i => nodes[i >= 0 ? i : 0]);
+  const inv = [];
+  for (let i = 0; i < bones.length; i++) { const m = new THREE.Matrix4(); m.set(...s.bind.slice(i * 16, i * 16 + 16)); inv.push(m); }
+  const mesh = new THREE.SkinnedMesh(g, mat(colorFor(s.name, s.color), s.alpha, true));
+  mesh.frustumCulled = false;
+  mesh.bindMode = 'detached';
+  mesh.bind(new THREE.Skeleton(bones, inv), new THREE.Matrix4());
+  if (s.alpha < 1) mesh.renderOrder = 2;
+  scene.add(mesh);
+  skinned.push({ src: s, mesh, bones, inv });
+}
+for (const r of M.rigid) {
+  if (r.name.toLowerCase().includes('flag')) continue;
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(r.v, 3)); g.setIndex(r.tri); g.computeVertexNormals();
+  nodes[r.node].add(new THREE.Mesh(g, mat(colorFor(r.name, r.color), r.alpha)));
+}
+const seatPts = [];
+for (const s of M.seat) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(s.v, 3)); g.setIndex(s.tri); g.computeVertexNormals();
+  rig.add(new THREE.Mesh(g, mat('#5d6168', 1)));
+  for (let i = 0; i < s.v.length; i += 6) seatPts.push([s.v[i], s.v[i + 1], s.v[i + 2]]);   // every 2nd vertex
+}
+
+// ---------------------------------------------------------------- K-space helpers
+const V = (a) => new THREE.Vector3(a[0], a[1], a[2]);
+const arr = (v) => [v.x, v.y, v.z];
+function kMatrix(node) { node.updateWorldMatrix(true, false); return new THREE.Matrix4().multiplyMatrices(rigInv, node.matrixWorld); }
+function kPos(node) { return new THREE.Vector3().setFromMatrixPosition(kMatrix(node)); }
+function kQuat(node) { const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3(); kMatrix(node).decompose(p, q, s); return q; }
+function setKQuat(node, q) {
+  const pq = node.parent === rig ? new THREE.Quaternion() : kQuat(node.parent);
+  node.quaternion.copy(pq.invert().multiply(q));
+  node.updateMatrixWorld(true);
+}
+function turn(node, axis, deg) {   // rotate a bone about a K-space axis, like the mod's Turn()
+  const d = new THREE.Quaternion().setFromAxisAngle(axis.clone().normalize(), deg * Math.PI / 180);
+  setKQuat(node, d.multiply(kQuat(node)));
+}
+function fromTo(a, b) { return new THREE.Quaternion().setFromUnitVectors(a.clone().normalize(), b.clone().normalize()); }
+const mirror = (p) => [-p[0], p[1], p[2]];
+const round = (a) => a.map(v => Math.round(v * 10000) / 10000);
+
+// ---------------------------------------------------------------- rig parts the poses use (same names as KerbalPoser)
+const ARM = {
+  L: { upper: byName['bn_l_arm01 1'], mid: byName['bn_l_elbow_a01'], end: byName['bn_l_wrist01'], tip: byName['bn_l_mid_a01'] },
+  R: { upper: byName['bn_r_arm01 1'], mid: byName['bn_r_elbow_a01'], end: byName['bn_r_wrist01'], tip: byName['bn_r_mid_a01'] },
+};
+const SPINE = byName['bn_spD01'], NECK = byName['bn_neck01'];
+if (!ARM.L.upper || !ARM.R.upper || !ARM.L.tip || !SPINE || !NECK) { statusEl.textContent = 'This kerbal rig is not the stock one; poses cannot be edited.'; return; }
+
+function resetPose() { nodes.forEach((b, i) => { b.position.copy(base[i].p); b.quaternion.copy(base[i].q); }); rig.updateMatrixWorld(true); }
+function brace() { turn(SPINE, new THREE.Vector3(1, 0, 0), -6); turn(NECK, new THREE.Vector3(1, 0, 0), 5); }
+
+// two-bone IK exactly as the mod does it (Solve + AimHand)
+function solve(l, target, pole) {
+  const u0 = kQuat(l.upper);
+  const a = kPos(l.upper), b = kPos(l.mid), c = kPos(l.end);
+  const la = b.distanceTo(a), lb = c.distanceTo(b);
+  const toT = target.clone().sub(a);
+  const d = Math.min(Math.max(toT.length(), Math.abs(la - lb) + 1e-3), (la + lb) * 0.999);
+  const dir = toT.lengthSq() > 1e-8 ? toT.clone().normalize() : c.clone().sub(a).normalize();
+  let bend = pole.clone().sub(a); bend.sub(dir.clone().multiplyScalar(bend.dot(dir)));
+  if (bend.lengthSq() < 1e-8) { bend = b.clone().sub(a); bend.sub(dir.clone().multiplyScalar(bend.dot(dir))); }
+  bend.normalize();
+  const cosA = Math.min(1, Math.max(-1, (la * la + d * d - lb * lb) / (2 * la * d)));
+  const elbow = a.clone().add(dir.clone().multiplyScalar(la * cosA)).add(bend.clone().multiplyScalar(la * Math.sqrt(1 - cosA * cosA)));
+  const endPos = a.clone().add(dir.clone().multiplyScalar(d));
+  setKQuat(l.upper, fromTo(b.clone().sub(a), elbow.clone().sub(a)).multiply(u0));
+  const b2 = kPos(l.mid), c2 = kPos(l.end);
+  setKQuat(l.mid, fromTo(c2.clone().sub(b2), endPos.clone().sub(b2)).multiply(kQuat(l.mid)));
+}
+function aimHand(l, dir) {
+  const curDir = kPos(l.tip).sub(kPos(l.end));
+  if (curDir.lengthSq() < 1e-10) return;
+  setKQuat(l.end, fromTo(curDir, dir).multiply(kQuat(l.end)));
+}
+
+// ---------------------------------------------------------------- obstacles: the kerbal's own surface (not the arms) + the seat
+const armBones = new Set();
+for (const s of ['L', 'R']) ARM[s].upper.traverse(o => armBones.add(o));
+let obstacles = [];
+function buildObstacles() {
+  resetPose();
+  const pts = [];
+  for (const sk of skinned) {
+    const s = sk.src, mats = sk.bones.map((b, i) => kMatrix(b).multiply(sk.inv[i]));
+    for (let vi = 0; vi < s.v.length / 3; vi += 2) {
+      let best = 0, bw = -1;
+      for (let k = 0; k < 4; k++) if (s.bw[vi * 4 + k] > bw) { bw = s.bw[vi * 4 + k]; best = s.bi[vi * 4 + k]; }
+      if (armBones.has(sk.bones[best])) continue;
+      const v = new THREE.Vector3(s.v[vi * 3], s.v[vi * 3 + 1], s.v[vi * 3 + 2]), out = new THREE.Vector3();
+      for (let k = 0; k < 4; k++) {
+        const w = s.bw[vi * 4 + k]; if (w <= 0) continue;
+        out.add(v.clone().applyMatrix4(mats[s.bi[vi * 4 + k]]).multiplyScalar(w));
+      }
+      pts.push([out.x, out.y, out.z]);
+    }
+  }
+  obstacles = pts.concat(seatPts);
+}
+// how far a limb segment (axis a-b, radius r) sinks into the obstacles
+function penetration(a, b, r) {
+  const ax = a.x, ay = a.y, az = a.z, dx = b.x - ax, dy = b.y - ay, dz = b.z - az, dd = dx * dx + dy * dy + dz * dz || 1e-12;
+  let deep = 0, n = 0;
+  const minx = Math.min(a.x, b.x) - r, maxx = Math.max(a.x, b.x) + r, miny = Math.min(a.y, b.y) - r, maxy = Math.max(a.y, b.y) + r, minz = Math.min(a.z, b.z) - r, maxz = Math.max(a.z, b.z) + r;
+  for (const p of obstacles) {
+    if (p[0] < minx || p[0] > maxx || p[1] < miny || p[1] > maxy || p[2] < minz || p[2] > maxz) continue;
+    let t = ((p[0] - ax) * dx + (p[1] - ay) * dy + (p[2] - az) * dz) / dd; t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const qx = p[0] - ax - dx * t, qy = p[1] - ay - dy * t, qz = p[2] - az - dz * t;
+    const dist = Math.sqrt(qx * qx + qy * qy + qz * qz);
+    if (dist < r) { deep = Math.max(deep, r - dist); n++; }
+  }
+  return { deep, n };
+}
+const LIMB_R = { upper: 0.02, fore: 0.019, hand: 0.017 };
+
+// pick the elbow swivel and the hand direction that stay clear, as close as possible to what was asked for
+function solveArm(side, arm) {
+  const l = ARM[side];
+  const S = kPos(l.upper);
+  const W0 = V(arm.wrist);
+  const la = kPos(l.mid).distanceTo(S), lb = kPos(l.end).distanceTo(kPos(l.mid));
+  const toW = W0.clone().sub(S), dist0 = toW.length();
+  const reach = (la + lb) * 0.995, reached = dist0 <= reach;
+  const W = reached ? W0.clone() : S.clone().add(toW.clone().multiplyScalar(reach / dist0));
+  const dist = Math.max(Math.min(dist0, reach), Math.abs(la - lb) + 1e-3);
+  const dir = W.clone().sub(S).normalize();
+  const cosA = Math.min(1, Math.max(-1, (la * la + dist * dist - lb * lb) / (2 * la * dist)));
+  const C = S.clone().add(dir.clone().multiplyScalar(la * cosA)), R = la * Math.sqrt(1 - cosA * cosA);
+  const u = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0, 1, 0)); if (u.length() < 1e-4) u.crossVectors(dir, new THREE.Vector3(1, 0, 0)); u.normalize();
+  const v = new THREE.Vector3().crossVectors(dir, u).normalize();
+  const ph = V(arm.pole).sub(S); ph.sub(dir.clone().multiplyScalar(ph.dot(dir)));
+  const pref = Math.atan2(ph.dot(v), ph.dot(u));
+  let best = null;
+  for (let i = 0; i < 48; i++) {
+    const ang = i / 48 * Math.PI * 2;
+    const E = C.clone().add(u.clone().multiplyScalar(Math.cos(ang) * R)).add(v.clone().multiplyScalar(Math.sin(ang) * R));
+    const p1 = penetration(S.clone().lerp(E, 0.35), E, LIMB_R.upper), p2 = penetration(E, W, LIMB_R.fore);
+    let da = Math.abs(ang - pref) % (Math.PI * 2); if (da > Math.PI) da = Math.PI * 2 - da;
+    const cost = (p1.deep + p2.deep) * 40 + (p1.n + p2.n) * 0.002 + da * 0.02;
+    if (!best || cost < best.cost) best = { cost, E, deep: Math.max(p1.deep, p2.deep) };
+  }
+  // hand: requested direction, tilted as little as possible to stay clear
+  const handLen = kPos(l.tip).distanceTo(kPos(l.end)) * 1.6;   // the mitten reaches past the finger bone
+  const want = V(arm.hand).normalize();
+  const ax1 = new THREE.Vector3().crossVectors(want, new THREE.Vector3(0, 1, 0)); if (ax1.length() < 1e-4) ax1.set(1, 0, 0); ax1.normalize();
+  const ax2 = new THREE.Vector3().crossVectors(want, ax1);
+  let bestH = null;
+  for (let i = 0; i <= 10; i++) {
+    const tilt = i / 10 * 1.2, steps = i === 0 ? 1 : 12;
+    for (let j = 0; j < steps; j++) {
+      const roll = j / steps * Math.PI * 2;
+      const h = want.clone().multiplyScalar(Math.cos(tilt)).add(ax1.clone().multiplyScalar(Math.cos(roll) * Math.sin(tilt))).add(ax2.clone().multiplyScalar(Math.sin(roll) * Math.sin(tilt))).normalize();
+      const p = penetration(W, W.clone().add(h.clone().multiplyScalar(handLen)), LIMB_R.hand);
+      const cost = p.deep * 40 + p.n * 0.002 + tilt * 0.03;
+      if (!bestH || cost < bestH.cost) bestH = { cost, h, deep: p.deep };
+    }
+  }
+  return { S, E: best.E, W, hand: bestH.h, deepArm: best.deep, deepHand: bestH.deep, reached, handLen };
+}
+
+// ---------------------------------------------------------------- poses
 const POSES = {
-  sides:   { title: 'Side handles (ACES II, KM-1)', sym: true,
-             handles: [[-0.128, -0.075, 0.0], [0.128, -0.075, 0.0]] },
-  pan:     { title: 'Loop between the knees (US16E, K-36D, Martin-Baker)', sym: true,
-             handles: [[0, -0.03, 0.03]] },
+  sides:   { title: 'Side handles (ACES II, KM-1)', sym: true, handles: [[-0.128, -0.075, 0.0], [0.128, -0.075, 0.0]] },
+  pan:     { title: 'Loop at the knees (US16E, K-36D, Martin-Baker)', sym: true, handles: [[0, -0.03, 0.03]] },
   lever_r: { title: 'Lever on the right (He 162)', sym: false, handles: [[0.128, -0.075, 0.0]] },
   lever_l: { title: 'Lever on the left (He 219)', sym: false, handles: [[-0.128, -0.075, 0.0]] },
 };
-// starting values (what the mod uses now): wrist, hand tip direction, elbow hint
+function norm3(a) { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; }
+function mirrorArm(a) { return { wrist: mirror(a.wrist), hand: mirror(a.hand), pole: mirror(a.pole) }; }
 function defaults() {
-  const d = {};
-  const down = [0, -1, 0.15], onKnee = [0, -0.55, 1];
-  const mk = (w, hand, pole) => ({ wrist: w, hand: norm(hand), pole });
-  d.sides = { rest: { L: mk([-0.128, -0.06, 0], down, [-0.35, 0, -0.25]) }, pulled: { L: mk([-0.128, -0.03, 0], down, [-0.35, 0, -0.25]) } };
-  d.pan = { rest: { L: mk([-0.04, -0.005, -0.005], onKnee, [-0.35, -0.05, -0.1]) }, pulled: { L: mk([-0.04, 0.02, -0.02], onKnee, [-0.35, -0.05, -0.1]) } };
-  d.lever_r = {
-    rest:   { R: mk([0.128, -0.06, 0], down, [0.35, 0, -0.25]), L: mk([-0.05, 0, -0.03], onKnee, [-0.35, -0.05, -0.1]) },
-    pulled: { R: mk([0.128, -0.045, -0.04], down, [0.35, 0, -0.25]), L: mk([-0.05, 0, -0.03], onKnee, [-0.35, -0.05, -0.1]) } };
-  d.lever_l = {
-    rest:   { L: mk([-0.128, -0.06, 0], down, [-0.35, 0, -0.25]), R: mk([0.05, 0, -0.03], onKnee, [0.35, -0.05, -0.1]) },
-    pulled: { L: mk([-0.128, -0.045, -0.04], down, [-0.35, 0, -0.25]), R: mk([0.05, 0, -0.03], onKnee, [0.35, -0.05, -0.1]) } };
-  // symmetric poses keep the right side as a mirror of the left
+  const down = norm3([0, -1, 0.15]), onKnee = norm3([0, -0.55, 1]);
+  const mk = (w, hand, pole) => ({ wrist: w, hand, pole });
+  const d = {
+    sides: { rest: { L: mk([-0.128, -0.06, 0], down, [-0.35, 0, -0.25]) }, pulled: { L: mk([-0.128, -0.03, 0], down, [-0.35, 0, -0.25]) } },
+    pan: { rest: { L: mk([-0.04, -0.005, -0.005], onKnee, [-0.35, -0.05, -0.1]) }, pulled: { L: mk([-0.04, 0.02, -0.02], onKnee, [-0.35, -0.05, -0.1]) } },
+    lever_r: {
+      rest: { R: mk([0.128, -0.06, 0], down, [0.35, 0, -0.25]), L: mk([-0.05, 0, -0.03], onKnee, [-0.35, -0.05, -0.1]) },
+      pulled: { R: mk([0.128, -0.045, -0.04], down, [0.35, 0, -0.25]), L: mk([-0.05, 0, -0.03], onKnee, [-0.35, -0.05, -0.1]) } },
+    lever_l: {
+      rest: { L: mk([-0.128, -0.06, 0], down, [-0.35, 0, -0.25]), R: mk([0.05, 0, -0.03], onKnee, [0.35, -0.05, -0.1]) },
+      pulled: { L: mk([-0.128, -0.045, -0.04], down, [-0.35, 0, -0.25]), R: mk([0.05, 0, -0.03], onKnee, [0.35, -0.05, -0.1]) } },
+  };
   for (const k of ['sides', 'pan']) for (const s of ['rest', 'pulled']) d[k][s].R = mirrorArm(d[k][s].L);
   return d;
 }
-
-// ---------------------------------------------------------------- vector maths
-const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-const mul = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
-const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-const len = a => Math.hypot(a[0], a[1], a[2]);
-function norm(a) { const l = len(a); return l > 1e-9 ? mul(a, 1 / l) : [0, 0, 0]; }
-const mirror = p => [-p[0], p[1], p[2]];
-function mirrorArm(a) { return { wrist: mirror(a.wrist), hand: mirror(a.hand), pole: mirror(a.pole) }; }
-const clone = o => JSON.parse(JSON.stringify(o));
-const round = a => a.map(v => Math.round(v * 10000) / 10000);
-
-function closestOnSeg(p, a, b) {
-  const ab = sub(b, a); const t = Math.max(0, Math.min(1, dot(sub(p, a), ab) / Math.max(1e-12, dot(ab, ab))));
-  return add(a, mul(ab, t));
-}
-// distance between segments p1-q1 and p2-q2
-function segSeg(p1, q1, p2, q2) {
-  const d1 = sub(q1, p1), d2 = sub(q2, p2), r = sub(p1, p2);
-  const a = dot(d1, d1), e = dot(d2, d2), f = dot(d2, r);
-  let s, t;
-  if (a <= 1e-12 && e <= 1e-12) return len(r);
-  if (a <= 1e-12) { s = 0; t = Math.max(0, Math.min(1, f / e)); }
-  else {
-    const c = dot(d1, r);
-    if (e <= 1e-12) { t = 0; s = Math.max(0, Math.min(1, -c / a)); }
-    else {
-      const b = dot(d1, d2), den = a * e - b * b;
-      s = den > 1e-12 ? Math.max(0, Math.min(1, (b * f - c * e) / den)) : 0;
-      t = (b * s + f) / e;
-      if (t < 0) { t = 0; s = Math.max(0, Math.min(1, -c / a)); }
-      else if (t > 1) { t = 1; s = Math.max(0, Math.min(1, (b - c) / a)); }
-    }
-  }
-  return len(sub(add(p1, mul(d1, s)), add(p2, mul(d2, t))));
-}
-// how deep a limb segment (radius r) goes into the body and seat; 0 = clear
-function penetration(a, b, r, skipOwnLeg) {
-  let pen = 0;
-  for (const s of BODY) {
-    const d = s.kind === 'sphere' ? len(sub(closestOnSeg(s.c, a, b), s.c)) : segSeg(a, b, s.a, s.b);
-    pen += Math.max(0, s.r + r - d);
-  }
-  // seat: nothing below the pan or behind the back cushion
-  pen += Math.max(0, SEAT.panY + r - Math.min(a[1], b[1]));
-  pen += Math.max(0, SEAT.backZ + r - Math.min(a[2], b[2])) * (Math.max(a[1], b[1]) > SEAT.panY ? 1 : 0);
-  return pen;
-}
-
-// ---------------------------------------------------------------- arm solve with collision avoidance
-function shoulderOf(side) { return side === 'L' ? RIG.shoulder : mirror(RIG.shoulder); }
-
-function solveArm(side, arm) {
-  const S = shoulderOf(side), la = RIG.upper, lb = RIG.fore;
-  // the wrist can't be inside the body: push it out along the shortest way
-  let W = arm.wrist.slice();
-  for (let it = 0; it < 4; it++) {
-    for (const s of BODY) {
-      const c = s.kind === 'sphere' ? s.c : closestOnSeg(W, s.a, s.b);
-      const v = sub(W, c), d = len(v), need = s.r + LIMB_R.fore;
-      if (d < need) W = add(c, mul(d > 1e-6 ? mul(v, 1 / d) : [0, 0, 1], need));
-    }
-  }
-  let toW = sub(W, S), dist = len(toW);
-  const reach = (la + lb) * 0.995;
-  const reached = dist <= reach;
-  if (!reached) { W = add(S, mul(toW, reach / dist)); toW = sub(W, S); dist = reach; }
-  dist = Math.max(dist, Math.abs(la - lb) + 1e-3);
-  const dir = norm(toW);
-  const cosA = Math.max(-1, Math.min(1, (la * la + dist * dist - lb * lb) / (2 * la * dist)));
-  const C = add(S, mul(dir, la * cosA)), R = la * Math.sqrt(1 - cosA * cosA);
-  let u = cross(dir, [0, 1, 0]); if (len(u) < 1e-4) u = cross(dir, [1, 0, 0]); u = norm(u);
-  const v = norm(cross(dir, u));
-  // preferred swivel: towards the pole hint
-  const ph = sub(arm.pole, S), pa = norm(sub(ph, mul(dir, dot(ph, dir))));
-  const prefAng = Math.atan2(dot(pa, v), dot(pa, u));
-  let best = null;
-  for (let i = 0; i < 72; i++) {
-    const ang = i / 72 * Math.PI * 2;
-    const E = add(C, add(mul(u, Math.cos(ang) * R), mul(v, Math.sin(ang) * R)));
-    // the upper arm starts inside the shoulder, so only its outer part is checked
-    const pen = penetration(add(S, mul(sub(E, S), 0.35)), E, LIMB_R.upper) + penetration(E, W, LIMB_R.fore);
-    let da = Math.abs(ang - prefAng) % (Math.PI * 2); if (da > Math.PI) da = Math.PI * 2 - da;
-    const cost = pen * 10 + da * 0.004;
-    if (!best || cost < best.cost) best = { cost, E, pen };
-  }
-  // hand: the requested direction, turned as little as needed to stay clear
-  const want = norm(arm.hand);
-  let bestH = null;
-  for (let i = 0; i <= 12; i++) {
-    const tilt = i / 12 * 1.2;               // up to ~70 degrees away from what was asked
-    const steps = i === 0 ? 1 : 16;
-    for (let j = 0; j < steps; j++) {
-      let axis = cross(want, [0, 1, 0]); if (len(axis) < 1e-4) axis = [1, 0, 0]; axis = norm(axis);
-      const axis2 = cross(want, axis);
-      const roll = j / steps * Math.PI * 2;
-      const off = add(mul(axis, Math.cos(roll)), mul(axis2, Math.sin(roll)));
-      const h = norm(add(mul(want, Math.cos(tilt)), mul(off, Math.sin(tilt))));
-      const tip = add(W, mul(h, RIG.hand));
-      const pen = penetration(W, tip, LIMB_R.hand);
-      const cost = pen * 10 + tilt * 0.01;
-      if (!bestH || cost < bestH.cost) bestH = { cost, h, tip, pen };
-    }
-  }
-  return { S, E: best.E, W, tip: bestH.tip, hand: bestH.h, penArm: best.pen, penHand: bestH.pen, reached, moved: len(sub(W, arm.wrist)) > 0.005 };
-}
-
-// ---------------------------------------------------------------- state
 let data = defaults();
-const poseSel = document.getElementById('pose'), stateSel = document.getElementById('state');
-const symBox = document.getElementById('sym'), sideSel = document.getElementById('side');
+const poseSel = document.getElementById('pose'), stateSel = document.getElementById('state'), symBox = document.getElementById('sym');
 for (const k in POSES) { const o = document.createElement('option'); o.value = k; o.textContent = POSES[k].title; poseSel.appendChild(o); }
-function cur() { return data[poseSel.value][stateSel.value]; }
-function symmetric() { return symBox.checked && POSES[poseSel.value].sym; }
-poseSel.onchange = () => { symBox.checked = POSES[poseSel.value].sym; draw(); };
-stateSel.onchange = draw; symBox.onchange = draw; sideSel.onchange = draw;
+const cur = () => data[poseSel.value][stateSel.value];
+const symmetric = () => symBox.checked && POSES[poseSel.value].sym;
+poseSel.onchange = () => { symBox.checked = POSES[poseSel.value].sym; update(); };
+stateSel.onchange = update; symBox.onchange = update;
+document.getElementById('ghost').onchange = (e) => {
+  for (const m of materials) { const a = e.target.checked ? Math.min(m.userData.alpha, 0.35) : m.userData.alpha; m.transparent = a < 1; m.opacity = a; m.depthWrite = a >= 1; m.needsUpdate = true; }
+  render();
+};
 
-// ---------------------------------------------------------------- drawing
-const views = [
-  { cv: document.getElementById('front'), axis: 'front' },   // screen x <- -x (mirror: we face the kerbal), y up
-  { cv: document.getElementById('sideView'), axis: 'side' }, // screen x <- z, y up
-];
-const SCALE = 880, CY = 0.1;
-function toScreen(view, p) {
-  const c = view.cv, cx = c.width / 2, cy = c.height / 2;
-  const sx = view.axis === 'front' ? -p[0] : p[2] + 0.02;
-  return [cx + sx * SCALE, cy - (p[1] - CY) * SCALE];
+// ---------------------------------------------------------------- handles (draggable dots) and markers
+function dot(color, r) { return new THREE.Mesh(new THREE.SphereGeometry(r, 20, 14), new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.95 })); }
+const handles = {};
+for (const s of ['L', 'R']) {
+  const col = s === 'L' ? 0x2f7de1 : 0xe0632f;
+  handles[s] = { wrist: dot(col, 0.012), tip: dot(col, 0.008) };
+  handles[s].wrist.renderOrder = handles[s].tip.renderOrder = 10;
+  handles[s].wrist.userData = { side: s, what: 'wrist' }; handles[s].tip.userData = { side: s, what: 'hand' };
+  rig.add(handles[s].wrist, handles[s].tip);
 }
-function fromScreen(view, x, y, keep) {
-  const c = view.cv, cx = c.width / 2, cy = c.height / 2;
-  const sx = (x - cx) / SCALE, py = -(y - cy) / SCALE + CY;
-  return view.axis === 'front' ? [-sx, py, keep[2]] : [keep[0], py, sx - 0.02];
-}
-function css(v) { return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
-
-function drawCapsule(ctx, view, a, b, r, fill, stroke) {
-  const A = toScreen(view, a), B = toScreen(view, b);
-  ctx.lineCap = 'round';
-  ctx.strokeStyle = stroke; ctx.lineWidth = r * 2 * SCALE + 2; ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke();
-  ctx.strokeStyle = fill; ctx.lineWidth = r * 2 * SCALE; ctx.beginPath(); ctx.moveTo(A[0], A[1]); ctx.lineTo(B[0], B[1]); ctx.stroke();
-}
+const markers = new THREE.Group(); rig.add(markers);
+const badMat = new THREE.MeshBasicMaterial({ color: 0xdd2222, transparent: true, opacity: 0.5, depthTest: false });
+const badMarks = { L: new THREE.Mesh(new THREE.SphereGeometry(0.03, 16, 12), badMat), R: new THREE.Mesh(new THREE.SphereGeometry(0.03, 16, 12), badMat) };
+badMarks.L.renderOrder = badMarks.R.renderOrder = 8;
+rig.add(badMarks.L, badMarks.R);
 
 let solved = { L: null, R: null };
-function draw() {
+function update() {
   const c = cur();
   if (symmetric()) c.R = mirrorArm(c.L);
-  solved.L = solveArm('L', c.L); solved.R = solveArm('R', c.R);
-  for (const view of views) drawView(view);
-  // status
+  resetPose(); brace();
+  for (const s of ['L', 'R']) {
+    solved[s] = solveArm(s, c[s]);
+    // apply to the real bones, the same way the mod does (pole = the chosen elbow)
+    solve(ARM[s], solved[s].W, solved[s].E);
+    aimHand(ARM[s], solved[s].hand);
+    const h = handles[s];
+    h.wrist.position.copy(kPos(ARM[s].end));
+    h.tip.position.copy(kPos(ARM[s].end).add(solved[s].hand.clone().multiplyScalar(solved[s].handLen)));
+    const bad = solved[s].deepArm > 0.004 || solved[s].deepHand > 0.004;
+    badMarks[s].visible = bad; badMarks[s].position.copy(solved[s].deepHand > solved[s].deepArm ? h.tip.position : solved[s].E);
+  }
+  markers.clear();
+  for (const p of POSES[poseSel.value].handles) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.018, 0.004, 8, 28), new THREE.MeshBasicMaterial({ color: 0xe2b400, depthTest: false }));
+    ring.position.fromArray(p); ring.rotation.y = Math.PI / 2; ring.renderOrder = 9; markers.add(ring);
+  }
   const msgs = [];
   for (const s of ['L', 'R']) {
     const r = solved[s], name = s === 'L' ? 'Left' : 'Right';
-    if (!r.reached) msgs.push(name + ' wrist is out of reach (kerbal arms are short); it stops at full stretch.');
-    else if (r.moved) msgs.push(name + ' wrist was inside the body and has been moved to the surface.');
-    if (r.penArm > 0.002) msgs.push('<b class="bad">' + name + ' arm still clips (' + Math.round(r.penArm * 1000) + ' mm).</b>');
-    if (r.penHand > 0.002) msgs.push('<b class="bad">' + name + ' hand still clips (' + Math.round(r.penHand * 1000) + ' mm).</b>');
+    if (!r.reached) msgs.push(name + ' wrist is out of reach; it stops at full stretch.');
+    if (r.deepArm > 0.004) msgs.push('<b class="bad">' + name + ' arm clips ' + Math.round(r.deepArm * 1000) + ' mm.</b>');
+    if (r.deepHand > 0.004) msgs.push('<b class="bad">' + name + ' hand clips ' + Math.round(r.deepHand * 1000) + ' mm.</b>');
   }
-  document.getElementById('status').innerHTML = msgs.length ? msgs.join(' ') : 'Both arms clear of the body.';
-  document.getElementById('out').value = JSON.stringify(exportData(), null, 1);
-}
-
-function drawView(view) {
-  const ctx = view.cv.getContext('2d'), W = view.cv.width, H = view.cv.height;
-  ctx.clearRect(0, 0, W, H);
-  // grid
-  ctx.strokeStyle = css('--line'); ctx.lineWidth = 1;
-  for (let m = -0.3; m <= 0.31; m += 0.05) {
-    const a = toScreen(view, view.axis === 'front' ? [m, -1, 0] : [0, -1, m]), b = toScreen(view, [0, m, 0]);
-    ctx.beginPath(); ctx.moveTo(a[0], 0); ctx.lineTo(a[0], H); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, b[1]); ctx.lineTo(W, b[1]); ctx.stroke();
-  }
-  // seat
-  ctx.fillStyle = css('--seat');
-  const pan = toScreen(view, [0, SEAT.panY, 0]);
-  if (view.axis === 'side') {
-    const back = toScreen(view, [0, 0, SEAT.backZ]);
-    ctx.fillRect(back[0] - 14, pan[1] - 260, 14, 260);
-    ctx.fillRect(back[0] - 14, pan[1], toScreen(view, [0, 0, 0.17])[0] - back[0] + 14, 14);
-  } else ctx.fillRect(toScreen(view, [0.22, 0, 0])[0], pan[1], 0.44 * SCALE, 14);
-
-  // body, back to front (in the side view the far side first)
-  const suit = css('--suit'), edge = css('--suitEdge');
-  const order = BODY.slice().sort((a, b) => depth(view, b) - depth(view, a));
-  for (const s of order) {
-    if (s.kind === 'sphere') continue;
-    drawCapsule(ctx, view, s.a, s.b, s.r, suit, edge);
-  }
-  // arms: the one further from the viewer first
-  const sides = view.axis === 'side' ? ['R', 'L'] : ['L', 'R'];
-  for (const s of sides) drawArm(ctx, view, s);
-  // helmet last, see-through
-  const hel = BODY[0], hc = toScreen(view, hel.c);
-  ctx.fillStyle = css('--helmet'); ctx.strokeStyle = css('--helmetEdge'); ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.arc(hc[0], hc[1], hel.r * SCALE, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-  // handles
-  for (const h of POSES[poseSel.value].handles) {
-    const p = toScreen(view, h);
-    ctx.strokeStyle = css('--handle'); ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.arc(p[0], p[1], 9, 0, Math.PI * 2); ctx.stroke();
-  }
-}
-function depth(view, s) {   // larger = further from the viewer
-  const c = s.kind === 'sphere' ? s.c : mul(add(s.a, s.b), 0.5);
-  return view.axis === 'front' ? -c[2] : c[0];
-}
-
-function drawArm(ctx, view, s) {
-  const r = solved[s], col = s === 'L' ? css('--left') : css('--right'), bad = css('--bad');
-  const editable = !symmetric() || s === 'L';
-  drawCapsule(ctx, view, r.S, r.E, LIMB_R.upper, r.penArm > 0.002 ? bad : css('--suit'), col);
-  drawCapsule(ctx, view, r.E, r.W, LIMB_R.fore, r.penArm > 0.002 ? bad : css('--suit'), col);
-  drawCapsule(ctx, view, r.W, r.tip, LIMB_R.hand, r.penHand > 0.002 ? bad : '#9a9ea6', col);
-  const pts = [[r.S, 3, css('--bone')], [r.E, 4, css('--bone')]];
-  for (const [p, rad, c] of pts) { const q = toScreen(view, p); ctx.fillStyle = c; ctx.beginPath(); ctx.arc(q[0], q[1], rad, 0, Math.PI * 2); ctx.fill(); }
-  const wq = toScreen(view, r.W), tq = toScreen(view, r.tip);
-  const active = editable && (symmetric() || sideSel.value === s);
-  ctx.fillStyle = col; ctx.globalAlpha = active ? 1 : 0.45;
-  ctx.beginPath(); ctx.arc(wq[0], wq[1], 9, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(tq[0], tq[1], 6, 0, Math.PI * 2); ctx.fill();
-  ctx.globalAlpha = 1;
+  statusEl.innerHTML = msgs.length ? msgs.join(' ') : 'Both arms clear of the body and the seat.';
+  render();
 }
 
 // ---------------------------------------------------------------- dragging
+const ray = new THREE.Raycaster(), mouse = new THREE.Vector2();
 let drag = null;
-function editSide() { return symmetric() ? 'L' : sideSel.value; }
-for (const view of views) {
-  const cv = view.cv;
-  const pos = e => { const b = cv.getBoundingClientRect(); return [(e.clientX - b.left) * cv.width / b.width, (e.clientY - b.top) * cv.height / b.height]; };
-  cv.addEventListener('pointerdown', e => {
-    const [x, y] = pos(e);
-    // pick the nearest wrist or hand tip of the side being edited (or either side when symmetric)
-    let best = null;
-    const sidesHit = symmetric() ? ['L', 'R'] : [sideSel.value];
-    for (const s of sidesHit) {
-      const r = solved[s];
-      for (const [what, p] of [['wrist', r.W], ['hand', r.tip]]) {
-        const q = toScreen(view, p), d = Math.hypot(q[0] - x, q[1] - y);
-        if (d < 18 && (!best || d < best.d)) best = { d, what, s };
-      }
-    }
-    if (!best) return;
-    drag = { view, what: best.what, mirrored: symmetric() && best.s === 'R' };
-    cv.setPointerCapture(e.pointerId);
-  });
-  cv.addEventListener('pointermove', e => {
-    if (!drag || drag.view !== view) return;
-    const [x, y] = pos(e);
-    const arm = cur()[editSide()];
-    const r = solved[editSide()];
-    if (drag.what === 'wrist') {
-      let p = fromScreen(view, x, y, drag.mirrored ? mirror(arm.wrist) : arm.wrist);
-      if (drag.mirrored) p = mirror(p);
-      arm.wrist = p;
-    } else {
-      let tipNow = drag.mirrored ? mirror(r.tip) : r.tip;
-      let p = fromScreen(view, x, y, tipNow);
-      if (drag.mirrored) p = mirror(p);
-      arm.hand = norm(sub(p, r.W));
-    }
-    // the elbow hint follows where the solver last put the elbow, so it doesn't flip around while dragging
-    arm.pole = add(r.E, mul(norm(sub(r.E, r.S)), 0.1));
-    draw();
-  });
-  const end = () => { drag = null; };
-  cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+function setMouse(e) { const b = renderer.domElement.getBoundingClientRect(); mouse.set((e.clientX - b.left) / b.width * 2 - 1, -(e.clientY - b.top) / b.height * 2 + 1); }
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  setMouse(e);
+  let best = null;
+  const b = renderer.domElement.getBoundingClientRect();
+  for (const s of ['L', 'R']) for (const h of [handles[s].wrist, handles[s].tip]) {
+    const w = h.getWorldPosition(new THREE.Vector3()), p = w.clone().project(camera);
+    const d = Math.hypot((p.x - mouse.x) * b.width / 2, (p.y - mouse.y) * b.height / 2);
+    if (d < 14 && (!best || d < best.d)) best = { d, h, w };
+  }
+  if (!best) return;
+  e.stopImmediatePropagation(); controls.enabled = false;
+  drag = { h: best.h, plane: new THREE.Plane().setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()), best.w) };
+  renderer.domElement.setPointerCapture(e.pointerId);
+}, true);
+renderer.domElement.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  setMouse(e); ray.setFromCamera(mouse, camera);
+  const hit = new THREE.Vector3(); if (!ray.ray.intersectPlane(drag.plane, hit)) return;
+  const k = arr(hit.applyMatrix4(rigInv));       // world -> K space
+  const { side, what } = drag.h.userData;
+  const flip = symmetric() && side === 'R';      // dragging the mirrored side edits the left one
+  const s = flip ? 'L' : side;
+  const arm = cur()[s], sol = solved[side];
+  if (what === 'wrist') arm.wrist = flip ? mirror(k) : k;
+  else {
+    const W = arr(sol.W), d = norm3([k[0] - W[0], k[1] - W[1], k[2] - W[2]]);
+    arm.hand = flip ? mirror(d) : d;
+  }
+  // keep the elbow on the side the solver chose, so it doesn't flip around while dragging
+  const pole = arr(sol.E.clone().add(sol.E.clone().sub(sol.S).normalize().multiplyScalar(0.1)));
+  arm.pole = flip ? mirror(pole) : pole;
+  update();
+});
+function endDrag() { drag = null; controls.enabled = true; }
+renderer.domElement.addEventListener('pointerup', endDrag);
+renderer.domElement.addEventListener('pointercancel', endDrag);
+
+// ---------------------------------------------------------------- view
+function view(which) {
+  // the kerbal faces +z in K space, which is -z in the scene (mirrored group)
+  const t = controls.target;
+  if (which === 'front') camera.position.set(t.x, t.y + 0.12, t.z - 1.75);
+  else camera.position.set(t.x - 1.75, t.y + 0.12, t.z);
+  camera.lookAt(t); controls.update(); render();
+}
+document.getElementById('front').onclick = () => view('front');
+document.getElementById('side').onclick = () => view('side');
+controls.addEventListener('change', render);
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); render();
+}
+window.addEventListener('resize', resize);
+function render() {
+  const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  renderer.setClearColor(dark ? 0x1f2226 : 0xffffff);
+  renderer.render(scene, camera);
 }
 
 // ---------------------------------------------------------------- file
 function exportData() {
-  const out = { format: 'EjectionSeats.poses', version: 1,
+  const out = { format: 'EjectionSeats.poses', version: 1, kerbal: M.kerbal,
     units: 'metres in the kerbal frame: x right, y up, z forward (seated EVA kerbal)', poses: {} };
   for (const k in POSES) {
     out.poses[k] = {};
     for (const st of ['rest', 'pulled']) {
-      const c = data[k][st]; out.poses[k][st] = {};
+      out.poses[k][st] = {};
+      const c = data[k][st];
+      if (POSES[k].sym && symBox.checked) c.R = mirrorArm(c.L);
+      resetPose(); brace();
       for (const s of ['L', 'R']) {
         const r = solveArm(s, c[s]);
-        out.poses[k][st][s] = { wrist: round(r.W), elbow: round(r.E), handDir: round(r.hand), clips: r.penArm + r.penHand > 0.002 };
+        out.poses[k][st][s] = { wrist: round(arr(r.W)), elbow: round(arr(r.E)), handDir: round(arr(r.hand)), clips: r.deepArm > 0.004 || r.deepHand > 0.004 };
       }
     }
   }
+  update();
   return out;
 }
 function importData(obj) {
@@ -406,31 +455,28 @@ function importData(obj) {
   const d = defaults();
   for (const k in obj.poses) if (d[k]) for (const st of ['rest', 'pulled']) for (const s of ['L', 'R']) {
     const a = obj.poses[k][st] && obj.poses[k][st][s]; if (!a) continue;
-    const S = shoulderOf(s);
-    d[k][st][s] = { wrist: a.wrist, hand: a.handDir, pole: add(a.elbow, mul(norm(sub(a.elbow, S)), 0.1)) };
+    d[k][st][s] = { wrist: a.wrist, hand: a.handDir, pole: a.elbow };
   }
-  data = d; draw();
+  data = d; update();
 }
 document.getElementById('save').onclick = () => {
   const blob = new Blob([JSON.stringify(exportData(), null, 2)], { type: 'application/json' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'ejection_poses.json'; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 };
-document.getElementById('copy').onclick = async () => {
-  const t = JSON.stringify(exportData(), null, 2);
-  try { await navigator.clipboard.writeText(t); document.getElementById('status').textContent = 'Pose file copied.'; }
-  catch { const o = document.getElementById('out'); o.select(); document.execCommand('copy'); }
-};
 document.getElementById('load').onclick = () => document.getElementById('file').click();
-document.getElementById('file').onchange = e => {
+document.getElementById('file').onchange = (e) => {
   const f = e.target.files[0]; if (!f) return;
-  f.text().then(t => { try { importData(JSON.parse(t)); } catch (err) { document.getElementById('status').textContent = 'Could not read that file: ' + err.message; } });
+  f.text().then(t => { try { importData(JSON.parse(t)); } catch (err) { statusEl.textContent = 'Could not read that file: ' + err.message; } });
 };
-document.getElementById('reset').onclick = () => { const d = defaults(); data[poseSel.value] = d[poseSel.value]; draw(); };
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', draw);
+document.getElementById('reset').onclick = () => { data[poseSel.value] = defaults()[poseSel.value]; update(); };
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
 
+buildObstacles();
 symBox.checked = POSES[poseSel.value].sym;
-draw();
+resize(); view('front'); update();
+window.__poseEditor = { exportData, setPose: (p) => { poseSel.value = p; symBox.checked = POSES[p].sym; update(); }, view };
+})();
 </script>
 </body>
 </html>

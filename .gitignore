@@ -9,3 +9,6 @@ backup_*/
 *.user
 *.suo
 Thumbs.db
+
+# the pose editor's kerbal model is exported from your own KSP install (Squad's asset) - never committed
+tools/pose_editor_model.js
