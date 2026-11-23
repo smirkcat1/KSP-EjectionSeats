@@ -302,7 +302,7 @@ const POSES = {
 function norm3(a) { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; }
 function mirrorArm(a) { return { wrist: mirror(a.wrist), hand: mirror(a.hand), pole: mirror(a.pole) }; }
 function defaults() {
-  const d = { eject: { L: { wrist: [-0.05, 0.03, 0], hand: [0, -0.4819, 0.8762], pole: [-0.1388, 0.0277, -0.0131] } } };
+  const d = { eject: { L: { wrist: [-0.0941, -0.0131, 0.0625], hand: [0.5744, -0.1076, 0.8115], pole: [-0.1323, 0.0205, -0.0114] } } };
   d.eject.R = mirrorArm(d.eject.L);
   return d;
 }

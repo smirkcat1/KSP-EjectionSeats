@@ -91,9 +91,9 @@ namespace EjectionSeats
 
         // ------------------------------------------------------------------ poses
         // the ejecting pose, right arm (the left is its mirror): wrist, elbow pole and hand direction
-        static readonly Vector3 PoseWrist = new Vector3(0.05f, 0.03f, 0f);
-        static readonly Vector3 PoseElbow = new Vector3(0.1388f, 0.0277f, -0.0131f);
-        static readonly Vector3 PoseHand = new Vector3(0f, -0.4819f, 0.8762f);
+        static readonly Vector3 PoseWrist = new Vector3(0.0941f, -0.0131f, 0.0625f);
+        static readonly Vector3 PoseElbow = new Vector3(0.1323f, 0.0205f, -0.0114f);
+        static readonly Vector3 PoseHand = new Vector3(-0.5744f, -0.1076f, 0.8115f);
 
         void Brace(float w)
         {
