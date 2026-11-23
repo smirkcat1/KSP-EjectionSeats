@@ -270,7 +270,17 @@ namespace EjectionSeats
         void Start()
         {
             running.Add(this);
+            IgnoreVessel(true);
             StartCoroutine(Run());
+        }
+
+        // Unity forgets IgnoreCollision whenever a collider is switched off and on again, and KSP does that to the
+        // kerbal (going off rails, helmet, gear) and to the craft. Until the kerbal is clear, keep re-applying it.
+        void FixedUpdate()
+        {
+            if (collisionsRestored || done || eva == null) return;
+            IgnoreVessel(true);
+            if (running.Count > 1) IgnoreOtherCrew();
         }
 
         /// <summary>Crew leaving side by side must not knock each other around inside the cockpit.</summary>
@@ -1155,6 +1165,17 @@ namespace EjectionSeats
             }
             if (eva != null)
             {
+                // no collisions with the craft before the kerbal is pulled inside it: the sequence only takes
+                // over a frame later, and a physics step in between shoves the kerbal out and spins the craft
+                try
+                {
+                    var mine = eva.GetComponentsInChildren<Collider>(true);
+                    foreach (var p in part.vessel.parts)
+                        foreach (var vc in p.GetComponentsInChildren<Collider>(true))
+                            if (vc != null && !vc.isTrigger)
+                                foreach (var kc in mine) if (kc != null) Physics.IgnoreCollision(kc, vc, true);
+                }
+                catch (Exception e) { Log.Dbg("spawn collision ignore failed: " + e.Message); }
                 eva.transform.position = pose.pos;
                 eva.transform.rotation = Quaternion.LookRotation(Vector3.ProjectOnPlane(pose.fwd, pose.ejectDir).normalized, pose.ejectDir);
             }
