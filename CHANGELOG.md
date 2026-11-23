@@ -4,6 +4,12 @@
 
 * Fixed the ejection seat (and the kerbal in it) starting about 20 cm below the cockpit's own seat. The kerbal now
   starts exactly where they were sitting in the IVA, in any cockpit.
+* Canopies painted into the hull are now found the way RealWindows finds windows (the hull's night-lighting or
+  gloss map), and blown off along the window frames instead of as a round hole. Cockpits with no glass above the
+  crew still get the round hole.
+* The jettisoned canopy no longer has its cabin lights on.
+* With RealWindows installed, the jettisoned canopy's glass is see-through.
+* New setting `glassCanopy` to go back to the round hole.
 
 ## 1.1.0
 

@@ -81,7 +81,8 @@ namespace EjectionSeats
         public float srbSmokeAmount = 1f;          // particle count multiplier
         public float srbSmokeLifetime = 9f;        // seconds the trail hangs in the air
         public bool seatAsPart = true;
-        public bool kerbalPoses = true;            // braced ejection posture, hands on the handle and the risers             // the separated seat becomes a real part (fuel, aero, crashes)
+        public bool kerbalPoses = true;
+        public bool glassCanopy = true;            // find canopy glass painted into the hull texture and take that off            // braced ejection posture, hands on the handle and the risers             // the separated seat becomes a real part (fuel, aero, crashes)
         public float flameScale = 1f;
         public bool useBDAPlumes = true;
         public string plumePrefab = "BDArmory/Models/exhaust/smallExhaust";
@@ -191,6 +192,7 @@ namespace EjectionSeats
                 F(n, "srbSmokeLifetime", ref s.srbSmokeLifetime);
                 B(n, "seatAsPart", ref s.seatAsPart);
                 B(n, "kerbalPoses", ref s.kerbalPoses);
+                B(n, "glassCanopy", ref s.glassCanopy);
                 F(n, "flameScale", ref s.flameScale);
                 B(n, "useBDAPlumes", ref s.useBDAPlumes);
                 S(n, "plumePrefab", ref s.plumePrefab);

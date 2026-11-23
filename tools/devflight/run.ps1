@@ -6,7 +6,7 @@ param(
     [Parameter(Mandatory = $true)][string]$Out,
     [float]$Alt = 800, [float]$Speed = 200, [float]$Duration = 6,
     [string]$Shots = "", [float]$CamDist = 1.4, [float]$CamHdg = 3.4, [float]$CamPitch = 0.25,   # front view of the kerbal
-    [float]$Dump = 0, [string]$Seat = "", [float]$Kill = -1,
+    [float]$Dump = 0, [string]$Seat = "", [float]$Kill = -1, [string]$Part = "Mark1Cockpit",
     [string]$TestDir = "C:\KSP_EjectionTest"
 )
 $ErrorActionPreference = "Stop"
@@ -27,7 +27,7 @@ foreach ($l in Get-Content $craft) {
         if ($tr -eq '{') { $depth++; if ($depth -eq 1 -and $partsSeen -eq 1) { $craftLines.Add($l) }; continue }
         if ($tr -eq '}') { if ($depth -eq 1) { if ($partsSeen -eq 1) { $craftLines.Add($l) }; $inPart = $false }; $depth--; continue }
         if ($partsSeen -eq 1 -and $depth -eq 1 -and $tr -notmatch '^(link|attN|srfN|sym) =') {
-            if ($tr -match '^part = ') { $craftLines.Add("`tpart = Mark1Cockpit_4292993932") } else { $craftLines.Add($l) }
+            if ($tr -match '^part = ') { $craftLines.Add("`tpart = " + $Part + "_4292993932") } else { $craftLines.Add($l) }
         }
         continue
     }

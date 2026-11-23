@@ -1224,16 +1224,37 @@ namespace EjectionSeats
                     go.transform.localScale = mf.transform.lossyScale;
                     go.transform.SetParent(debrisRoot, true);
                     go.AddComponent<MeshFilter>().sharedMesh = mf.sharedMesh;
-                    go.AddComponent<MeshRenderer>().sharedMaterials = r.sharedMaterials;
+                    var dr = go.AddComponent<MeshRenderer>();
+                    dr.sharedMaterials = r.sharedMaterials;
+                    HullCutter.CopyLook(r, dr);
                 }
                 r.enabled = false;
             }
+            // canopy glass painted into the hull (found like RealWindows does): taken off along the panes' outline
+            GlassFinder.Result glass = null;
+            if (S.glassCanopy && plan.canopy.Count == 0)
+            {
+                try { glass = GlassFinder.Find(part, plan, S); }
+                catch (Exception e) { Log.Warn("glass search failed: " + e.Message); }
+                if (glass != null) Log.Info("canopy glass: " + (glass.found ? "found, " : "not found, ") + glass.how);
+            }
+            bool needHole = glass == null || !glass.found || !glass.Covers(plan.columns);
+            Vector3 inside = part.transform.position;
             foreach (var mf in part.FindModelComponents<MeshFilter>())
             {
                 if (mf == null || canopySet.Contains(mf) || mf.GetComponentInParent<EjectionGenerated>() != null) continue;
                 var r = mf.GetComponent<MeshRenderer>();
                 if (r == null || !r.enabled || !mf.gameObject.activeInHierarchy) continue;
                 if (InteriorReveal.IsDepthMask(r)) { r.enabled = false; continue; }
+                if (glass != null && glass.found)
+                {
+                    // with RealWindows the cockpit's windows are see-through, so the jettisoned canopy's are too
+                    Material pane = SeatInteriorMirror.Installed && debrisRoot != null ? MatLib.CanopyGlass : null;
+                    try { HullCutter.CutTriangles(mf, inside, (a, b, c, n) => glass.Contains((a + b + c) / 3f, n), debrisRoot, pane); }
+                    catch (Exception e) { Log.Warn("glass cut failed on " + mf.name + ": " + e.Message); }
+                }
+                // round hole where the glass doesn't already open the way out (or there was no glass)
+                if (!needHole) continue;
                 try { HullCutter.Cut(mf, plan.columns, S.subdivideEdge, debrisRoot); }
                 catch (Exception e) { Log.Warn("cut failed on " + mf.name + ": " + e.Message); }
             }

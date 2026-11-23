@@ -687,6 +687,26 @@ namespace EjectionSeats
         public static Texture2D FlameCore { get { if (flameCore == null) flameCore = FlameTexture(true); return flameCore; } }
         public static Texture2D FlameBody { get { if (flameBody == null) flameBody = FlameTexture(false); return flameBody; } }
 
+        /// <summary>Clear canopy glass for the jettisoned canopy (matches RealWindows' default tint).</summary>
+        public static Material CanopyGlass
+        {
+            get
+            {
+                Material m;
+                if (cache.TryGetValue("canopyGlass", out m) && m != null) return m;
+                m = new Material(FindShader("KSP/Alpha/Translucent Specular", "Legacy Shaders/Transparent/Specular", "Standard"));
+                m.name = "EjectionSeat_CanopyGlass";
+                m.SetColor("_Color", new Color(0.92f, 0.96f, 1f, 0.16f));
+                if (m.HasProperty("_SpecColor")) m.SetColor("_SpecColor", new Color(0.9f, 0.9f, 0.9f, 1f));
+                if (m.HasProperty("_Shininess")) m.SetFloat("_Shininess", 0.06f);
+                if (m.HasProperty("_Glossiness")) m.SetFloat("_Glossiness", 0.95f);
+                m.mainTexture = White;
+                m.renderQueue = 3000;
+                cache["canopyGlass"] = m;
+                return m;
+            }
+        }
+
         public static Material ParticleTex(bool additive, Texture2D tex)
         {
             string key = (additive ? "ptAdd_" : "ptAlpha_") + tex.name;
