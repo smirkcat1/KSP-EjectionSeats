@@ -132,8 +132,18 @@ namespace EjectionSeats
             return Build(v, scale, SeatTheme.UseReStock(EjectionSettings.Get()));
         }
 
-        public static SeatModelResult Build(SeatVariant v, float scale, bool restock)
+        class Built { public Mesh mesh; public List<KeyValuePair<Vector3, Quaternion>> nozzles; }
+        static readonly Dictionary<string, Built> built = new Dictionary<string, Built>();
+
+        /// <summary>
+        /// The seat's mesh and nozzle frames, built once per seat type, look and size and then shared by every copy
+        /// (ejecting seats, spent seat parts, previews). Building one takes ~10 ms, which used to land mid-ejection.
+        /// </summary>
+        static Built Geometry(SeatVariant v, float scale, bool restock)
         {
+            string key = v.id + (restock ? "|rs|" : "|st|") + scale.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+            Built b;
+            if (built.TryGetValue(key, out b) && b.mesh != null) return b;
             var kit = new MeshKit(11);
             kit.scale = scale;
             kit.uvScale = 0.4f;
@@ -149,9 +159,24 @@ namespace EjectionSeats
                 case "he219": He219(kit, restock, nozzles); break;
                 default: Modern(kit, restock, nozzles); break;
             }
+            b = new Built { mesh = kit.Build("EjectionSeat_" + v.id + (restock ? "_restock" : "")), nozzles = nozzles };
+            b.mesh.UploadMeshData(false);   // keep it readable: the plume export and hull tools read seat vertices
+            built[key] = b;
+            return b;
+        }
 
+        /// <summary>Builds (and caches) every seat's geometry ahead of time, e.g. while the main menu loads.</summary>
+        public static void Prewarm(float scale, bool restock)
+        {
+            foreach (var v in SeatVariant.All) Geometry(v, scale, restock);
+        }
+
+        public static SeatModelResult Build(SeatVariant v, float scale, bool restock)
+        {
+            Built g = Geometry(v, scale, restock);
+            var nozzles = g.nozzles;
             SeatPalette p = restock ? v.restock : v.stock;
-            Mesh mesh = kit.Build("EjectionSeat_" + v.id + (restock ? "_restock" : ""));
+            Mesh mesh = g.mesh;
             var go = new GameObject("EjectionSeat_" + v.id);
             go.AddComponent<EjectionGenerated>();
             go.AddComponent<MeshFilter>().sharedMesh = mesh;

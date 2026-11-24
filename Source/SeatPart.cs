@@ -75,9 +75,18 @@ namespace EjectionSeats
             return n;
         }
 
+        readonly List<Collider> all = new List<Collider>();
+        float nextScan;
+
         void Hold()
         {
-            foreach (var c in GetComponentsInChildren<Collider>(true))
+            // the seat's colliders are looked up once a second, not on every call (twice a frame)
+            if (all.Count == 0 || Time.unscaledTime >= nextScan)
+            {
+                GetComponentsInChildren(true, all);
+                nextScan = Time.unscaledTime + 1f;
+            }
+            foreach (var c in all)
             {
                 if (c == null || c.isTrigger || !c.enabled) continue;
                 c.enabled = false;

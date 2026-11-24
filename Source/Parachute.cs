@@ -118,6 +118,15 @@ namespace EjectionSeats
             return null;
         }
 
+        /// <summary>Bakes the stock canopies a seat may use ahead of time (the first bake costs a frame mid-ejection).</summary>
+        public static void Prewarm(EjectionSettings s)
+        {
+            var names = new HashSet<string> { "parachuteSingle", "parachuteRadial", "parachuteLarge" };
+            if (!string.IsNullOrEmpty(s.chutePart)) names.Add(s.chutePart);
+            foreach (var v in SeatVariant.All) if (!string.IsNullOrEmpty(v.chutePart)) names.Add(v.chutePart);
+            foreach (var n in names) GetStock(n);
+        }
+
         static StockCanopy GetStock(string partName)
         {
             StockCanopy sc;
@@ -127,6 +136,98 @@ namespace EjectionSeats
             sc = GetCanopy(partName, ap.partPrefab.transform, ap.partPrefab.FindModuleImplementing<ModuleParachute>());
             cache[partName] = sc;
             return sc;
+        }
+
+        const float CollapsedRatio = 2f;        // canopy height / hem radius above which it counts as not deployed
+        const float MinDeployedRadius = 0.4f;   // metres: anything smaller is a packed canopy, not an open one
+
+        /// <summary>
+        /// Samples the part's deploy animations at their end on the baking copy. Returns how many clips were sampled.
+        /// KSP puts a model's animations under the part's "model" transform, so they normally come along with the copy;
+        /// if a part (or a mod) keeps them elsewhere on the part, the clips are replayed on a stand-in for the part root
+        /// that holds the copy, so the clips' paths ("model/...") still resolve. Clips not named by the module are
+        /// found by name (deploy / full / inflate / open).
+        /// </summary>
+        static int PoseDeployed(GameObject copy, Transform partRoot, Transform model, ModuleParachute mp)
+        {
+            int n = 0;
+            foreach (var anim in copy.GetComponentsInChildren<Animation>(true))
+            {
+                n += SampleEnd(anim, mp);
+                anim.enabled = false;
+            }
+            if (n > 0) return n;
+
+            // animations that live on the part but outside its model (not on any attached child part)
+            foreach (var src in partRoot.GetComponentsInChildren<Animation>(true))
+            {
+                if (src == null || src.transform.IsChildOf(model) && model != partRoot) continue;   // those came with the copy
+                if (src.GetComponentInParent<Part>() != null && src.GetComponentInParent<Part>().transform != partRoot) continue;
+                string rel = PathFrom(partRoot, src.transform);
+                if (rel == null) continue;
+                var stand = new GameObject("EjectionSeat_BakeRoot");
+                string modelName = copy.name;
+                copy.name = model.name;
+                copy.transform.SetParent(stand.transform, false);
+                try
+                {
+                    Transform host = rel.Length == 0 ? stand.transform : stand.transform.Find(rel);
+                    if (host == null) continue;
+                    var a = host.gameObject.AddComponent<Animation>();
+                    foreach (AnimationState st in src)
+                        if (st != null && st.clip != null && a.GetClip(st.name) == null) a.AddClip(st.clip, st.name);
+                    n += SampleEnd(a, mp);
+                    UnityEngine.Object.DestroyImmediate(a);
+                }
+                catch (Exception e) { Log.Dbg("replaying parachute animation failed: " + e.Message); }
+                finally
+                {
+                    copy.transform.SetParent(null, true);
+                    copy.name = modelName;
+                    UnityEngine.Object.DestroyImmediate(stand);
+                }
+                if (n > 0) break;
+            }
+            return n;
+        }
+
+        /// <summary>Samples the deploy clips (semi, then full, so full wins) at their last frame.</summary>
+        static int SampleEnd(Animation anim, ModuleParachute mp)
+        {
+            var names = new List<string>();
+            foreach (var c in new[] { mp.semiDeployedAnimation, mp.fullyDeployedAnimation })
+                if (!string.IsNullOrEmpty(c) && anim[c] != null) names.Add(c);
+            if (names.Count == 0)
+            {
+                // module names don't match this model's clips: take the most deployed-sounding one
+                string best = null; int bestScore = 0;
+                foreach (AnimationState st in anim)
+                {
+                    if (st == null) continue;
+                    string l = st.name.ToLowerInvariant();
+                    int score = l.Contains("full") ? 3 : l.Contains("inflate") ? 2 : (l.Contains("deploy") || l.Contains("open")) ? 1 : 0;
+                    if (l.Contains("semi") || l.Contains("cut") || l.Contains("repack")) score = Math.Min(score, 1) - 1;
+                    if (score > bestScore) { bestScore = score; best = st.name; }
+                }
+                if (best != null) names.Add(best);
+            }
+            foreach (var name in names)
+            {
+                AnimationState st = anim[name];
+                st.enabled = true; st.weight = 1f; st.normalizedTime = 1f;
+                anim.Sample();
+                st.enabled = false;
+            }
+            return names.Count;
+        }
+
+        /// <summary>Transform path from root to t ("" for root itself), or null if t is not under root.</summary>
+        static string PathFrom(Transform root, Transform t)
+        {
+            var parts = new List<string>();
+            for (; t != null && t != root; t = t.parent) parts.Insert(0, t.name);
+            if (t != root) return null;
+            return string.Join("/", parts.ToArray());
         }
 
         /// <summary>Bakes the fully-deployed canopy of any parachute part (prefab or live instance).</summary>
@@ -158,18 +259,13 @@ namespace EjectionSeats
                 copy.transform.rotation = Quaternion.identity;
                 foreach (Transform t in copy.GetComponentsInChildren<Transform>(true)) t.gameObject.SetActive(true);
 
-                foreach (var anim in copy.GetComponentsInChildren<Animation>(true))
-                {
-                    foreach (var clip in new[] { mp.semiDeployedAnimation, mp.fullyDeployedAnimation })
-                    {
-                        if (string.IsNullOrEmpty(clip) || anim[clip] == null) continue;
-                        AnimationState st = anim[clip];
-                        st.enabled = true; st.weight = 1f; st.normalizedTime = 1f;
-                        anim.Sample();
-                        st.enabled = false;
-                    }
-                    anim.enabled = false;
-                }
+                // pose the canopy fully deployed before baking (issue #3: if nothing is sampled, the stowed
+                // canopy gets baked and no amount of scaling turns it into an open one)
+                int sampled = PoseDeployed(copy, partRoot, model, mp);
+                if (sampled == 0)
+                    Log.Warn("parachute '" + partName + "': no deploy animation could be sampled, so its canopy may be stowed - " +
+                             "checking its shape before using it");
+                else Log.Dbg("parachute '" + partName + "': posed with " + sampled + " deploy clip(s)");
 
                 Transform can = CockpitAnalyzer.FindDeep(copy.transform, string.IsNullOrEmpty(mp.canopyName) ? "canopy" : mp.canopyName);
                 if (can == null) { cache[partName] = null; return null; }
@@ -229,6 +325,16 @@ namespace EjectionSeats
                     top = Mathf.Max(top, p.y);
                 }
                 if (maxR < 1e-3f || top <= hem) { cache[partName] = null; return null; }
+                // A deployed canopy is metres across and about as tall as it is wide (stock: 3.3-6.2 m, height/radius
+                // 0.7-1.0). Stowed it is a few-centimetre bundle (stock: 1-3 cm), and baking that and scaling it up is
+                // what gave the collapsed canopy of issue #3. Never hang that over a kerbal: use the procedural canopy.
+                if (maxR < MinDeployedRadius || (top - hem) > CollapsedRatio * maxR)
+                {
+                    Log.Warn("parachute '" + partName + "': baked canopy is not deployed (" + (maxR * 2f).ToString("F2") + " m wide, " +
+                             (top - hem).ToString("F2") + " m tall) - using the built-in canopy instead");
+                    cache[partName] = null;
+                    return null;
+                }
                 float cut = hem - 0.04f * (top - hem);
 
                 // build: drop stock cords (anything under the hem), add back faces, normalise
@@ -450,9 +556,21 @@ namespace EjectionSeats
             transform.position = AttachCenter + transform.up * riserLen;
         }
 
+        const float LinesDrawDistance = 250f;   // beyond this the lines are under a pixel wide
+        bool linesHidden;
+
         void UpdateLines()
         {
             if (lines == null) return;
+            Camera cam = FlightCamera.fetch != null && FlightCamera.fetch.mainCamera != null ? FlightCamera.fetch.mainCamera : Camera.main;
+            bool far = cam != null && (cam.transform.position - transform.position).sqrMagnitude > LinesDrawDistance * LinesDrawDistance;
+            if (far != linesHidden)
+            {
+                linesHidden = far;
+                foreach (var l in lines) if (l != null) l.enabled = !far;
+                foreach (var l in risers) if (l != null) l.enabled = !far;
+            }
+            if (far) return;
             Vector3 c = AttachCenter;
             Vector3 right = kerbal != null ? kerbal.right : transform.right;
             Vector3 bL = c - right * attachSpread, bR = c + right * attachSpread;

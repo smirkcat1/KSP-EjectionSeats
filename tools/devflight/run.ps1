@@ -6,7 +6,7 @@ param(
     [Parameter(Mandatory = $true)][string]$Out,
     [float]$Alt = 800, [float]$Speed = 200, [float]$Duration = 6,
     [string]$Shots = "", [float]$CamDist = 1.4, [float]$CamHdg = 3.4, [float]$CamPitch = 0.25,   # front view of the kerbal
-    [float]$Dump = 0, [string]$Seat = "", [float]$Kill = -1, [string]$Part = "Mark1Cockpit", [float]$PlumeExport = 0,
+    [float]$Dump = 0, [string]$Seat = "", [float]$Kill = -1, [string]$Part = "Mark1Cockpit", [float]$PlumeExport = 0, [switch]$NoDebug,
     [string]$TestDir = "C:\KSP_EjectionTest"
 )
 $ErrorActionPreference = "Stop"
@@ -15,6 +15,8 @@ $t = $TestDir
 if (Get-Process KSP_x64 -ErrorAction SilentlyContinue) { throw "KSP is running - close it first" }
 & powershell -ExecutionPolicy Bypass -File (Join-Path $root "build.ps1") -KspDir $t -Install | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "build failed" }
+$installedCfg = Join-Path $t "GameData\EjectionSeats\Settings.cfg"
+if ($NoDebug) { (Get-Content $installedCfg) -replace '^(\s*debug\s*=\s*)true', '${1}false' | Set-Content $installedCfg -Encoding ascii }
 
 # one-seat craft: the saved plane's root part swapped for a Mk1 cockpit, top-level values only
 $craft = Join-Path $t "saves\test\Ships\SPH\Auto-Saved Ship.craft"

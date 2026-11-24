@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.3.0: Major optimization
+
+Measured in a test ejection (two-seat Mk2 cockpit, 10 seconds from the eject button): the longest freeze when you
+press eject is about half as long (around 85 ms instead of 175 ms), the hitch at seat separation is gone, and the
+mod makes about 70% less garbage for the game to clean up (13 MB instead of 45 MB), so there are fewer GC stutters.
+
+* Seat meshes, materials, textures and parachute canopies are now made once while the main menu loads, instead of
+  on the spot during your first ejection. Seat meshes are shared by every copy of a seat instead of being rebuilt.
+* The cockpit interior is cut once instead of twice, its props are merged into a few draw calls, and the ejection
+  work is spread over two frames.
+* Each kerbal's seat fit is worked out once per kerbal model and reused.
+* Collision handling between ejecting kerbals and the craft only re-applies when something changes, and only for
+  nearby parts, instead of pairing every collider of the craft on every physics step (a large saving on big craft).
+* Lighter smoke trails: about half the particles, slightly larger, with cheaper turbulence. They look the same.
+* Parachute lines and the kerbals seen through an open cockpit stop updating when the camera is far away.
+* Cockpits without seats installed no longer run anything per frame, and installed ones no longer make garbage
+  every frame. Settings.cfg is only re-read when it changes, rather than every couple of seconds.
+
+Fixes
+
+* Seat parachutes could show a collapsed canopy with parachute parts whose deploy animation the mod couldn't find
+  (GitHub issue #3). The deploy animation is now found wherever it is on the part, clips with other names are
+  recognised, and a canopy that still isn't open is never used: the built-in canopy is used instead, with a
+  warning in KSP.log.
+
 ## 1.2.0
 
 * Fixed the ejection seat (and the kerbal in it) starting about 20 cm below the cockpit's own seat. The kerbal now

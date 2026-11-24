@@ -130,12 +130,17 @@ namespace EjectionSeats
             return false;
         }
 
+        int clearanceTick;
+
         void CheckClearance()
         {
             if (collisionsRestored || eva == null || vesselColliders.Count == 0) return;
             if (runStart < 0f || Time.time - runStart < S.restoreCollisionsAfter) return;
+            // checked every 5th physics step: it walks every collider of the craft
+            if (++clearanceTick < 5) return;
+            clearanceTick = 0;
             if (OverlapsVessel()) { clearFor = 0f; return; }
-            clearFor += Time.fixedDeltaTime;
+            clearFor += Time.fixedDeltaTime * 5f;
             if (clearFor < 1f) return;
             IgnoreVessel(false);
             collisionsRestored = true;
@@ -275,48 +280,104 @@ namespace EjectionSeats
         }
 
         // Unity forgets IgnoreCollision whenever a collider is switched off and on again, and KSP does that to the
-        // kerbal (going off rails, helmet, gear) and to the craft. Until the kerbal is clear, keep re-applying it.
+        // kerbal (going off rails, helmet, gear) and to the craft. Until the kerbal is clear, keep it applied - but
+        // only re-apply when something actually changed (or a few times a second as a safety net), and only to the
+        // craft colliders near the kerbal: re-pairing every collider of a big craft every physics step cost
+        // thousands of physics calls per step.
+        const float ReapplyEvery = 0.25f;      // real seconds, safety net
+        const float IgnoreRadius = 40f;        // metres from the kerbal
+        readonly List<Collider> myCols = new List<Collider>();
+        readonly List<Collider> tmpCols = new List<Collider>();
+        int ignoreSig;
+        float nextIgnore;
+
+        /// <summary>The kerbal's own colliders that can take part in collisions right now (cached list, no garbage).</summary>
+        List<Collider> MyColliders()
+        {
+            myCols.Clear();
+            if (eva != null) eva.GetComponentsInChildren(false, myCols);
+            for (int i = myCols.Count - 1; i >= 0; i--)
+            {
+                var c = myCols[i];
+                if (c == null || !c.enabled || c.isTrigger) myCols.RemoveAt(i);
+            }
+            return myCols;
+        }
+
+        /// <summary>Changes whenever a collider involved is switched on/off or the vessels pack/unpack.</summary>
+        int CollisionSignature()
+        {
+            int sig = 17;
+            foreach (var c in MyColliders()) sig = sig * 31 + c.GetInstanceID();
+            int on = 0;
+            foreach (var c in vesselColliders) if (c != null && c.enabled && c.gameObject.activeInHierarchy) on++;
+            sig = sig * 31 + on;
+            sig = sig * 31 + running.Count;
+            if (eva != null && eva.vessel != null && eva.vessel.packed) sig ^= 0x5bd1e995;
+            if (cockpit != null && cockpit.vessel != null && cockpit.vessel.packed) sig ^= 0x1b873593;
+            return sig;
+        }
+
         void FixedUpdate()
         {
             GuardSeats();
             if (collisionsRestored || done || eva == null) return;
-            IgnoreVessel(true);
+            int sig = CollisionSignature();
+            if (sig == ignoreSig && Time.unscaledTime < nextIgnore) return;
+            ignoreSig = sig;
+            nextIgnore = Time.unscaledTime + ReapplyEvery;
+            IgnoreVessel(true, true);
             if (running.Count > 1) IgnoreOtherCrew();
         }
 
         // ---- no collisions with ejection seats while riding one and for a while after separating ----
         // Unity forgets IgnoreCollision whenever either collider is switched off and on, and the spent seat swaps its
-        // stand-in collider for a real part's, so the pairs are re-applied every physics step until the time is up.
+        // stand-in collider for a real part's, so the pairs are kept applied until the time is up.
         const float SeatNoCollideAfter = 2f;   // seconds after separation
         static readonly List<GameObject> standIns = new List<GameObject>();
         float separatedAt = -1f;
         bool seatGuardOver;
+        readonly List<Collider> seatCols = new List<Collider>();
+        int seatSig;
+        float nextSeatGuard;
 
         void SeatColliders(List<Collider> into)
         {
+            into.Clear();
             standIns.RemoveAll(g => g == null);
             foreach (var g in standIns)
-                foreach (var c in g.GetComponentsInChildren<Collider>(true)) if (c != null && !c.isTrigger) into.Add(c);
+            {
+                g.GetComponentsInChildren(true, tmpCols);
+                foreach (var c in tmpCols) if (c != null && !c.isTrigger && c.enabled && c.gameObject.activeInHierarchy) into.Add(c);
+            }
             ModuleEjectionSeatPart.Live.RemoveWhere(m => m == null);
             foreach (var m in ModuleEjectionSeatPart.Live)
-                if (m.part != null)
-                    foreach (var c in m.part.GetComponentsInChildren<Collider>(true)) if (c != null && !c.isTrigger) into.Add(c);
+            {
+                if (m.part == null) continue;
+                m.part.GetComponentsInChildren(true, tmpCols);
+                foreach (var c in tmpCols) if (c != null && !c.isTrigger && c.enabled && c.gameObject.activeInHierarchy) into.Add(c);
+            }
         }
 
         void GuardSeats()
         {
             if (seatGuardOver || eva == null) return;
             bool over = separatedAt >= 0f && Time.time - separatedAt >= SeatNoCollideAfter;
-            var seats = new List<Collider>();
-            SeatColliders(seats);
-            if (seats.Count == 0) { if (over) seatGuardOver = true; return; }
-            var mine = eva.GetComponentsInChildren<Collider>(false);
-            foreach (var s in seats)
+            SeatColliders(seatCols);
+            if (seatCols.Count == 0) { if (over) seatGuardOver = true; return; }
+            var mine = MyColliders();
+            int sig = 23;
+            foreach (var s in seatCols) sig = sig * 31 + s.GetInstanceID();
+            foreach (var k in mine) sig = sig * 31 + k.GetInstanceID();
+            if (!over && sig == seatSig && Time.unscaledTime < nextSeatGuard) return;
+            seatSig = sig;
+            nextSeatGuard = Time.unscaledTime + ReapplyEvery;
+            foreach (var s in seatCols)
                 foreach (var k in mine)
                 {
-                    if (k == null || s == k || !k.enabled || !s.enabled || !s.gameObject.activeInHierarchy) continue;   // switched-off colliders can't be paired (and can't collide)
+                    if (s == k) continue;
                     // when the time is up, collisions come back only where the two are clear of each other
-                    bool keepApart = !over || (s.enabled && k.enabled && s.bounds.Intersects(k.bounds));
+                    bool keepApart = !over || s.bounds.Intersects(k.bounds);
                     Physics.IgnoreCollision(k, s, keepApart);
                 }
             if (over) { seatGuardOver = true; Log.Dbg("seat collisions restored for " + (eva.vessel != null ? eva.vessel.vesselName : "kerbal")); }
@@ -325,13 +386,16 @@ namespace EjectionSeats
         /// <summary>Crew leaving side by side must not knock each other around inside the cockpit.</summary>
         void IgnoreOtherCrew()
         {
-            var mine = eva.GetComponentsInChildren<Collider>(true);
+            var mine = MyColliders();
             foreach (var other in running)
             {
                 if (other == null || other == this || other.eva == null) continue;
-                foreach (var theirs in other.eva.GetComponentsInChildren<Collider>(true))
-                    foreach (var c in mine)
-                        if (c != null && theirs != null) Physics.IgnoreCollision(c, theirs, true);
+                other.eva.GetComponentsInChildren(false, tmpCols);
+                foreach (var theirs in tmpCols)
+                {
+                    if (theirs == null || !theirs.enabled || theirs.isTrigger) continue;
+                    foreach (var c in mine) Physics.IgnoreCollision(c, theirs, true);
+                }
             }
         }
 
@@ -481,6 +545,34 @@ namespace EjectionSeats
         /// backpack are, then returns the seat offset (kerbal local) that puts the cushion under the
         /// pelvis and the back cushion against the pack.
         /// </summary>
+        // The fit depends only on the kerbal model (suit and body) and the seat size, so it is measured once per
+        // model and reused: measuring samples the animation and bakes the suit mesh, several ms per kerbal.
+        struct Fit { public Vector3 offset, pelvis; }
+        static readonly Dictionary<string, Fit> fits = new Dictionary<string, Fit>();
+
+        bool CachedFit(out Vector3 offset)
+        {
+            string key = null;
+            try
+            {
+                string model = eva.part != null && eva.part.partInfo != null ? eva.part.partInfo.name : eva.name;
+                string suit = eva.part != null && eva.part.protoModuleCrew.Count > 0 ? eva.part.protoModuleCrew[0].suit.ToString() : "";
+                key = model + "|" + suit + "|" + S.seatScale.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + "|" + S.pelvisAboveCushion.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+            }
+            catch { key = null; }
+            Fit f;
+            if (key != null && fits.TryGetValue(key, out f))
+            {
+                offset = f.offset;
+                fitPelvis = f.pelvis;
+                fitOk = true;
+                return true;
+            }
+            if (!TryFitSeat(out offset)) return false;
+            if (key != null) fits[key] = new Fit { offset = offset, pelvis = fitPelvis };
+            return true;
+        }
+
         bool TryFitSeat(out Vector3 offset)
         {
             offset = Vector3.zero;
@@ -567,15 +659,21 @@ namespace EjectionSeats
             return any;
         }
 
-        void IgnoreVessel(bool ignore)
+        /// <param name="nearOnly">Only the craft colliders within IgnoreRadius of the kerbal (routine re-applies;
+        /// the first apply and the final restore always cover the whole craft).</param>
+        void IgnoreVessel(bool ignore, bool nearOnly = false)
         {
             if (eva == null) return;
-            var mine = eva.GetComponentsInChildren<Collider>(true);
-            foreach (var a in mine)
+            var mine = MyColliders();
+            if (mine.Count == 0) return;
+            Vector3 p = transform.position;
+            float r2 = IgnoreRadius * IgnoreRadius;
+            foreach (var b in vesselColliders)
             {
-                if (a == null) continue;
-                foreach (var b in vesselColliders)
-                    if (b != null && a != b) Physics.IgnoreCollision(a, b, ignore);
+                if (b == null || !b.enabled || !b.gameObject.activeInHierarchy) continue;   // can't be paired while off
+                if (nearOnly && b.bounds.SqrDistance(p) > r2) continue;
+                foreach (var a in mine)
+                    if (a != b) Physics.IgnoreCollision(a, b, ignore);
             }
         }
 
@@ -673,7 +771,7 @@ namespace EjectionSeats
             seat.transform.localRotation = seatLocalRot;
             seatOffset = S.kerbalSeatOffset;
             Vector3 fit;
-            if (S.autoFitKerbal && TryFitSeat(out fit)) seatOffset = fit + S.kerbalFitAdjust;
+            if (S.autoFitKerbal && CachedFit(out fit)) seatOffset = fit + S.kerbalFitAdjust;
             // The EVA kerbal's origin sits at a different height in the body than the IVA kerbal's, so start from
             // where the IVA kerbal's pelvis actually was: kerbal and seat then line up with the cockpit's own seat.
             if (hasIvaPelvis && fitOk)
@@ -1108,6 +1206,7 @@ namespace EjectionSeats
             Vessel vessel = part.vessel;
             bool wasActive = vessel == FlightGlobals.ActiveVessel;
             SeatVariant variant = SeatVariant.Get(m.seatVariant);
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             EjectionPlan plan = CockpitAnalyzer.Analyze(part, m.ejectPitch, m.ejectYaw, S);
             foreach (var sp in plan.seats) sp.Capture(part.transform);   // pin to the cockpit before any waiting
             Log.Info("Ejecting from " + part.partInfo.title + ": " + plan.Summary());
@@ -1117,6 +1216,16 @@ namespace EjectionSeats
                 foreach (var c in p.GetComponentsInChildren<Collider>(true))
                     if (c != null && !c.isTrigger) vesselColliders.Add(c);
 
+            // ---- cabin: cut the IVA and build the world copy of the interior ----
+            // Done first and on its own frame: it is the heaviest step, and while the hull is still whole nobody can
+            // see that the interior copy appears a frame before the hole does.
+            try { m.ApplyCabinDamage(plan); }
+            catch (Exception e) { Log.Warn("Cabin damage failed: " + e.Message); }
+            if (Log.DebugOn) Log.Dbg("perf: analyze+cabin " + sw.ElapsedMilliseconds + " ms");
+            yield return null;
+            if (part == null || part.vessel == null) { Destroy(gameObject); yield break; }
+            sw.Reset(); sw.Start();
+
             // ---- canopy / hatch ----
             GameObject debris = null;
             if (m.blowCanopy)
@@ -1124,8 +1233,7 @@ namespace EjectionSeats
                 debris = BlowCanopy(part, plan, S, vesselColliders);
                 m.canopyGone = true;
             }
-            try { m.ApplyCabinDamage(plan); }
-            catch (Exception e) { Log.Warn("Cabin damage failed: " + e.Message); }
+            if (Log.DebugOn) Log.Dbg("perf: canopy/hull cut " + sw.ElapsedMilliseconds + " ms");
             // ---- seats ----
             // Every kerbal leaves the crew list straight away and waits strapped into their seat (so a cockpit
             // destroyed in the next moments can't take them with it); the seats then fire one after another.
@@ -1272,11 +1380,11 @@ namespace EjectionSeats
                 // over a frame later, and a physics step in between shoves the kerbal out and spins the craft
                 try
                 {
-                    var mine = eva.GetComponentsInChildren<Collider>(true);
+                    var mine = eva.GetComponentsInChildren<Collider>(false);
                     foreach (var p in part.vessel.parts)
-                        foreach (var vc in p.GetComponentsInChildren<Collider>(true))
-                            if (vc != null && !vc.isTrigger)
-                                foreach (var kc in mine) if (kc != null) Physics.IgnoreCollision(kc, vc, true);
+                        foreach (var vc in p.GetComponentsInChildren<Collider>(false))
+                            if (vc != null && !vc.isTrigger && vc.enabled)
+                                foreach (var kc in mine) if (kc != null && kc.enabled) Physics.IgnoreCollision(kc, vc, true);
                 }
                 catch (Exception e) { Log.Dbg("spawn collision ignore failed: " + e.Message); }
                 eva.transform.position = pose.pos;

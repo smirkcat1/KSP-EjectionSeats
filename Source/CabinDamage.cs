@@ -145,7 +145,8 @@ namespace EjectionSeats
         void Update()
         {
             // one-off visibility report (debug) so problems show up in KSP.log
-            if (reported || Time.time - created < 1f || !EjectionSettings.Get().debug) return;
+            if (reported || Time.time - created < 1f) return;
+            if (!EjectionSettings.Get().debug) { reported = true; return; }
             reported = true;
             int vis = 0;
             Bounds b = new Bounds(transform.position, Vector3.zero);
@@ -172,9 +173,27 @@ namespace EjectionSeats
             }
         }
 
+        const float DrawDistance = 150f;   // further than this the cabin interior can't be made out
+        bool farHidden;
+
+        static Camera ViewCamera()
+        {
+            if (FlightCamera.fetch != null && FlightCamera.fetch.mainCamera != null) return FlightCamera.fetch.mainCamera;
+            return Camera.main;
+        }
+
         void LateUpdate()
         {
             if (source == null || im == null) { Destroy(gameObject); return; }
+            // far away: no bone copying and nothing drawn (skinned meshes here skin even when off screen)
+            Camera cam = ViewCamera();
+            bool far = cam != null && (cam.transform.position - transform.position).sqrMagnitude > DrawDistance * DrawDistance;
+            if (far != farHidden)
+            {
+                farHidden = far;
+                foreach (var kv in rends) if (kv.Value != null) kv.Value.enabled = !far && kv.Key != null;
+            }
+            if (far) return;
             // root: IVA pose -> interior-root local (same mapping as the interior copy)
             Transform s0 = src[0];
             Quaternion inv = Quaternion.Inverse(im.transform.rotation);

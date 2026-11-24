@@ -106,6 +106,8 @@ namespace EjectionSeats
             if (HighLogic.LoadedSceneIsEditor) GameEvents.onEditorShipModified.Add(OnShipModified);
             if (HighLogic.LoadedSceneIsFlight && installed && canopyGone) StartCoroutine(RestoreDamage());
             RefreshUI();
+            // every crewed part carries this module; in flight, parts without seats installed never need Update
+            if (HighLogic.LoadedSceneIsFlight && !installed) enabled = false;
         }
 
         void OnDestroy()
@@ -190,11 +192,19 @@ namespace EjectionSeats
             }
             if (HighLogic.LoadedSceneIsFlight)
             {
-                if (expended) status = "Expended";
-                else if (part.protoModuleCrew.Count == 0) status = "Armed (no crew)";
-                else status = "ARMED - " + part.protoModuleCrew.Count + " seat(s)";
+                // rebuilt only when something changed (a new string every frame on every cockpit is pure garbage)
+                int crew = part.protoModuleCrew.Count;
+                if (crew != shownCrew || expended != shownExpended)
+                {
+                    shownCrew = crew; shownExpended = expended;
+                    if (expended) status = "Expended";
+                    else if (crew == 0) status = "Armed (no crew)";
+                    else status = "ARMED - " + crew + " seat(s)";
+                }
             }
         }
+        int shownCrew = -1;
+        bool shownExpended;
 
         // ------------------------------------------------------------------ UI
         public void RefreshUI()
@@ -341,17 +351,20 @@ namespace EjectionSeats
             bool imChanged = part.internalModel != null && part.internalModel != cutIM;
             if (force || imChanged || (showInterior && interiorCopy == null && part.internalModel != null))
             {
+                // Cut the real IVA first: the world copy below then shares the already-cut meshes instead of
+                // cutting the same geometry a second time.
+                cutIM = part.internalModel;
+                imStableSince = Time.realtimeSinceStartup;
+                helmetTried.Clear();
+                bool ivaCut = cutIM != null && localCols != null;
+                if (ivaCut) InteriorReveal.CutIVA(part, WorldCols(), S);
                 if (showInterior)
                 {
                     if (interiorCopy != null) Destroy(interiorCopy);
                     foreach (var kv in mirrors) if (kv.Value != null) Destroy(kv.Value.gameObject);
                     mirrors.Clear();
-                    interiorCopy = InteriorReveal.Build(part, WorldCols(), S);
+                    interiorCopy = InteriorReveal.Build(part, ivaCut ? null : WorldCols(), S);
                 }
-                cutIM = part.internalModel;
-                imStableSince = Time.realtimeSinceStartup;
-                helmetTried.Clear();
-                if (cutIM != null && localCols != null) InteriorReveal.CutIVA(part, WorldCols(), S);
             }
 
             if (portraitResetPending && !force)

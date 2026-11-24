@@ -726,7 +726,19 @@ namespace EjectionSeats
             // clear the escape column inside the cabin too (overhead panels, ceilings)
             if (cols != null)
                 foreach (var f in filters) HullCutter.Cut(f, cols, s.subdivideEdge, null);
-            Log.Dbg("interior reveal: " + count + " renderers");
+
+            // The props never move relative to each other, so merge them into a few batches (one draw call per
+            // material instead of one per prop, in the main and shadow passes). The root may still follow the craft.
+            int batched = 0;
+            try
+            {
+                var gos = new List<GameObject>();
+                foreach (var f in filters)
+                    if (f != null && f.sharedMesh != null && f.sharedMesh.isReadable) gos.Add(f.gameObject);
+                if (gos.Count > 1) { StaticBatchingUtility.Combine(gos.ToArray(), root); batched = gos.Count; }
+            }
+            catch (Exception e) { Log.Dbg("interior batching skipped: " + e.Message); }
+            Log.Dbg("interior reveal: " + count + " renderers, " + batched + " batched");
             return root;
         }
 

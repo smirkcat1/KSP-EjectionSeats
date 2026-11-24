@@ -107,12 +107,22 @@ namespace EjectionSeats
             get { return Path.Combine(KSPUtil.ApplicationRootPath, "GameData/EjectionSeats/Settings.cfg"); }
         }
 
+        static DateTime loadedStamp;
+
+        /// <summary>
+        /// The settings, re-read only when Settings.cfg has actually changed (checked at most every 2 s), so edits
+        /// still apply without a restart but nothing is parsed from disk during normal play.
+        /// </summary>
         public static EjectionSettings Get()
         {
-            if (cached == null || Time.realtimeSinceStartup - lastLoad > 2f)
+            if (cached != null && Time.realtimeSinceStartup - lastLoad <= 2f) return cached;
+            lastLoad = Time.realtimeSinceStartup;
+            DateTime stamp = DateTime.MinValue;
+            try { if (File.Exists(FilePath)) stamp = File.GetLastWriteTimeUtc(FilePath); } catch { }
+            if (cached == null || stamp != loadedStamp)
             {
                 cached = Load();
-                lastLoad = Time.realtimeSinceStartup;
+                loadedStamp = stamp;
             }
             return cached;
         }
@@ -249,6 +259,8 @@ namespace EjectionSeats
         public static void Warn(string m) { Debug.LogWarning("[EjectionSeats] " + m); }
         public static void Error(string m) { Debug.LogError("[EjectionSeats] " + m); }
         public static void Dbg(string m) { if (EjectionSettings.Get().debug) Debug.Log("[EjectionSeats:dbg] " + m); }
+        /// <summary>True when debug logging is on: guard any Dbg call whose message is costly to build.</summary>
+        public static bool DebugOn { get { return EjectionSettings.Get().debug; } }
     }
 
     /// <summary>Marker so our generated objects are never mistaken for part geometry.</summary>

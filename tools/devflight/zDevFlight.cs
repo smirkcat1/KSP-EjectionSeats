@@ -98,9 +98,21 @@ namespace zDevFlight
             float camDist = Cfg.F("camDist", 4f), camHdg = Cfg.F("camHdg", 1.3f), camPitch = Cfg.F("camPitch", 0.15f);
             float duration = Cfg.F("duration", 6f), t = 0f; int shot = 0;
             EjectionSequence seq = null;
+            // uncapped, so frame times show the real cost rather than the 60 fps limit
+            QualitySettings.vSyncCount = 0;
+            Application.targetFrameRate = -1;
+            var frames = new List<float>();
+            int gc0 = System.GC.CollectionCount(0);
+            long mem0 = System.GC.GetTotalMemory(false), memPrev = mem0, allocated = 0;
             while (t < duration)
             {
                 t += Time.deltaTime;
+                frames.Add(Time.unscaledDeltaTime * 1000f);
+                long memNow = System.GC.GetTotalMemory(false);
+                if (memNow > memPrev) allocated += memNow - memPrev;   // a collection drops the total: count growth only
+                memPrev = memNow;
+                if (Time.unscaledDeltaTime > 0.035f) W("slow frame " + (Time.unscaledDeltaTime * 1000f).ToString("F0", CultureInfo.InvariantCulture) + " ms at t=" + t.ToString("F2", CultureInfo.InvariantCulture) + " phase=" + (seq != null ? seq.Phase : "-"));
+                if (Application.targetFrameRate != -1 || QualitySettings.vSyncCount != 0) { QualitySettings.vSyncCount = 0; Application.targetFrameRate = -1; }
                 if (Time.timeScale < 0.99f) { Time.timeScale = 1f; Time.fixedDeltaTime = 0.02f; }   // no slow motion in tests
                 if (seq == null) { var all = FindObjectsOfType<EjectionSequence>(); if (all.Length > 0) seq = all[0]; }
                 if (seq != null && seq.eva != null && seq.eva.vessel != null && FlightGlobals.ActiveVessel != seq.eva.vessel && !seq.eva.vessel.packed) FlightGlobals.ForceSetActiveVessel(seq.eva.vessel);
@@ -134,6 +146,19 @@ namespace zDevFlight
                     shot++;
                 }
                 yield return null;
+            }
+            if (frames.Count > 2)
+            {
+                W("eject frame " + frames[0].ToString("F1", CultureInfo.InvariantCulture) + " ms");
+                frames.RemoveAt(0);   // the eject frame itself is reported separately
+                var sorted = new List<float>(frames); sorted.Sort();
+                float sum = 0f; foreach (var f in frames) sum += f;
+                W("frames " + frames.Count + ": avg " + (sum / frames.Count).ToString("F2", CultureInfo.InvariantCulture) + " ms, median " +
+                  sorted[sorted.Count / 2].ToString("F2", CultureInfo.InvariantCulture) + " ms, p95 " +
+                  sorted[(int)(sorted.Count * 0.95f)].ToString("F2", CultureInfo.InvariantCulture) + " ms, p99 " +
+                  sorted[(int)(sorted.Count * 0.99f)].ToString("F2", CultureInfo.InvariantCulture) + " ms, worst " +
+                  sorted[sorted.Count - 1].ToString("F2", CultureInfo.InvariantCulture) + " ms; gen0 GCs " + (System.GC.CollectionCount(0) - gc0) +
+                  ", allocated " + (allocated / 1024) + " KB");
             }
             Done("ok");
         }

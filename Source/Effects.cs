@@ -394,10 +394,11 @@ namespace EjectionSeats
             sm.offset = offset;
             sm.body = nozzle.GetComponentInParent<Rigidbody>();
             float amount = Mathf.Max(0f, s.srbSmokeAmount) * (p != null ? Mathf.Max(0f, p.smokeAmount) : 1f);
-            sm.perSecond = 70f * amount;
-            sm.perMetre = 1.4f * amount;
+            // fewer, larger puffs than before (same look, roughly half the particles to simulate, sort and draw)
+            sm.perSecond = 45f * amount;
+            sm.perMetre = 0.8f * amount;
             sm.life = Mathf.Max(1f, p != null ? p.smokeLife : s.srbSmokeLifetime);
-            float size = p != null ? Mathf.Max(0.05f, p.smokeSize) : 1f;
+            float size = (p != null ? Mathf.Max(0.05f, p.smokeSize) : 1f) * 1.3f;   // larger puffs make up for the lower count
             float opacity = p != null ? Mathf.Max(0f, p.smokeOpacity) : 1f;
             Color sc = p != null ? p.smokeColor : new Color(0.96f, 0.95f, 0.93f);
             Color sc2 = new Color(sc.r * 0.833f, sc.g * 0.842f, sc.b * 0.839f);
@@ -416,7 +417,7 @@ namespace EjectionSeats
             m.startSize = new ParticleSystem.MinMaxCurve(0.55f * size, 0.9f * size);
             m.startRotation = new ParticleSystem.MinMaxCurve(0f, Mathf.PI * 2f);
             m.startColor = new ParticleSystem.MinMaxGradient(new Color(sc.r, sc.g, sc.b, Mathf.Clamp01(0.9f * opacity)), new Color(sc2.r, sc2.g, sc2.b, Mathf.Clamp01(0.7f * opacity)));
-            m.maxParticles = 2500;
+            m.maxParticles = 1400;
             var em = ps.emission;
             em.rateOverTime = 0f;
             var sh = ps.shape; sh.shapeType = ParticleSystemShapeType.Cone; sh.angle = 8f; sh.radius = 0.05f;
@@ -433,7 +434,7 @@ namespace EjectionSeats
 
             var lim = ps.limitVelocityOverLifetime; lim.enabled = true; lim.limit = 0.6f; lim.dampen = 0.3f;
             var noise = ps.noise; noise.enabled = true; noise.strength = 0.5f; noise.frequency = 0.3f; noise.scrollSpeed = 0.15f;
-            noise.damping = true; noise.octaveCount = 2; noise.quality = ParticleSystemNoiseQuality.Medium;
+            noise.damping = true; noise.octaveCount = 1; noise.quality = ParticleSystemNoiseQuality.Low;
             var rot = ps.rotationOverLifetime; rot.enabled = true; rot.z = new ParticleSystem.MinMaxCurve(-0.25f, 0.25f);
 
             var r = go.GetComponent<ParticleSystemRenderer>();
