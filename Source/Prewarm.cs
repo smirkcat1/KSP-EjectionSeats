@@ -16,7 +16,7 @@ namespace EjectionSeats
         {
             DontDestroyOnLoad(gameObject);
             yield return null;
-            var sw = System.Diagnostics.Stopwatch.StartNew();
+            sw = new System.Diagnostics.Stopwatch();   // counts only our own work, not the frames waited in between
             var S = EjectionSettings.Get();
             bool restock = SeatTheme.UseReStock(S);
 
@@ -38,14 +38,20 @@ namespace EjectionSeats
                 yield return null;
             }
             Step(() => ParachuteModel.Prewarm(S));
-            Log.Info("prewarmed seats, textures and parachutes in " + sw.ElapsedMilliseconds + " ms (spread over the main menu)");
+            Log.Info("prewarmed seats, textures and parachutes: " + sw.ElapsedMilliseconds + " ms of work, spread over " + steps + " main-menu frames");
             Destroy(gameObject);
         }
 
+        static System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
+        static int steps;
+
         static void Step(Action a)
         {
+            sw.Start();
+            steps++;
             try { a(); }
             catch (Exception e) { Log.Warn("prewarm step failed (it will be built when first needed): " + e.Message); }
+            finally { sw.Stop(); }
         }
     }
 }

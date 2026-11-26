@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.3.1
+
+* Seat parachutes now use the real parachute model with RealChute installed. RealChute replaces the stock parachute
+  module on every parachute, so the mod couldn't read any parachute and fell back to its built-in striped canopy
+  (GitHub issue #3).
+* ReStock's skinned parachute canopies are baked correctly, including the radial one, which opens sideways in its
+  model and used to come out as a small, flat canopy on very long lines.
+* The parachute's opening stage no longer looks like a collapsed canopy: the streamer is shorter and the reefed
+  canopy is now a partly open bell instead of a long, narrow tube.
+* Fixed kerbals sometimes looping a parachute animation forever after landing. If they touched down just as the
+  mod handed them back to KSP, a parachute clip could replace KSP's landing animation, and KSP never restarted its
+  own. The mod now never starts a clip after the handover, checks after landing that KSP's idle is playing, and puts
+  back the loop settings it changed on KSP's clips.
+* The main-menu warm-up message in KSP.log now reports the mod's own work time, not the time the menu took to load.
+
 ## 1.3.0: Major optimization
 
 Measured in a test ejection (two-seat Mk2 cockpit, 10 seconds from the eject button): the longest freeze when you

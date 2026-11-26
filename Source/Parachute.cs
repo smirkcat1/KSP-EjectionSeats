@@ -53,7 +53,7 @@ namespace EjectionSeats
                 Part live = FindLiveParachute(sourceVessel, name);
                 if (live != null)
                 {
-                    sc = GetCanopy("live:" + live.persistentId, live.transform, live.FindModuleImplementing<ModuleParachute>());
+                    sc = GetCanopy("live:" + live.persistentId, live.transform, SpecOf(live));
                     if (sc != null) { Log.Dbg("chute canopy from live part '" + name + "' on " + sourceVessel.vesselName); break; }
                 }
                 // 2) the part as loaded (ReStock, texture packs, TextureReplacer all apply here)
@@ -109,11 +109,45 @@ namespace EjectionSeats
             foreach (var col in go.GetComponentsInChildren<Collider>(true)) UnityEngine.Object.DestroyImmediate(col);
         }
 
+        /// <summary>What the bake needs to know about a parachute part, from whichever module drives it.</summary>
+        class ChuteSpec
+        {
+            public string canopy, semi, full, source;
+        }
+
+        /// <summary>
+        /// Stock ModuleParachute, or RealChute's RealChuteModule (which replaces ModuleParachute on every parachute,
+        /// stock ones included). RealChute is read from the part's config, so no reference to its assembly is needed.
+        /// </summary>
+        static ChuteSpec SpecOf(Part p)
+        {
+            if (p == null) return null;
+            var mp = p.FindModuleImplementing<ModuleParachute>();
+            if (mp != null)
+                return new ChuteSpec { canopy = string.IsNullOrEmpty(mp.canopyName) ? "canopy" : mp.canopyName,
+                                       semi = mp.semiDeployedAnimation, full = mp.fullyDeployedAnimation, source = "ModuleParachute" };
+            try
+            {
+                ConfigNode cfg = p.partInfo != null ? p.partInfo.partConfig : null;
+                if (cfg == null) return null;
+                foreach (ConfigNode m in cfg.GetNodes("MODULE"))
+                {
+                    if (m.GetValue("name") != "RealChuteModule") continue;
+                    ConfigNode chute = m.GetNode("PARACHUTE");
+                    if (chute == null || !chute.HasValue("parachuteName")) continue;
+                    return new ChuteSpec { canopy = chute.GetValue("parachuteName"), semi = chute.GetValue("preDeploymentAnimation"),
+                                           full = chute.GetValue("deploymentAnimation"), source = "RealChute" };
+                }
+            }
+            catch (Exception e) { Log.Dbg("reading RealChute config failed: " + e.Message); }
+            return null;
+        }
+
         static Part FindLiveParachute(Vessel v, string partName)
         {
             if (v == null || v.parts == null) return null;
             foreach (var p in v.parts)
-                if (p != null && p.partInfo != null && p.partInfo.name == partName && p.FindModuleImplementing<ModuleParachute>() != null)
+                if (p != null && p.partInfo != null && p.partInfo.name == partName && SpecOf(p) != null)
                     return p;
             return null;
         }
@@ -133,7 +167,7 @@ namespace EjectionSeats
             if (cache.TryGetValue(partName, out sc)) return sc;
             AvailablePart ap = PartLoader.getPartInfoByName(partName);
             if (ap == null || ap.partPrefab == null) { cache[partName] = null; return null; }
-            sc = GetCanopy(partName, ap.partPrefab.transform, ap.partPrefab.FindModuleImplementing<ModuleParachute>());
+            sc = GetCanopy(partName, ap.partPrefab.transform, SpecOf(ap.partPrefab));
             cache[partName] = sc;
             return sc;
         }
@@ -148,7 +182,7 @@ namespace EjectionSeats
         /// that holds the copy, so the clips' paths ("model/...") still resolve. Clips not named by the module are
         /// found by name (deploy / full / inflate / open).
         /// </summary>
-        static int PoseDeployed(GameObject copy, Transform partRoot, Transform model, ModuleParachute mp)
+        static int PoseDeployed(GameObject copy, Transform partRoot, Transform model, ChuteSpec mp)
         {
             int n = 0;
             foreach (var anim in copy.GetComponentsInChildren<Animation>(true))
@@ -191,11 +225,30 @@ namespace EjectionSeats
             return n;
         }
 
+        /// <summary>
+        /// The renderers that make up the canopy: those below the canopy transform, plus skinned meshes elsewhere in
+        /// the model that are driven by bones below it (ReStock's canopies are skinned, and RealChute names their bone
+        /// root as the canopy, with the mesh beside the skeleton rather than under it).
+        /// </summary>
+        static List<Renderer> CanopyRenderers(GameObject copy, Transform can)
+        {
+            var list = new List<Renderer>(can.GetComponentsInChildren<Renderer>(true));
+            foreach (var smr in copy.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                if (smr == null || list.Contains(smr)) continue;
+                bool driven = smr.rootBone != null && smr.rootBone.IsChildOf(can);
+                if (!driven && smr.bones != null)
+                    foreach (var b in smr.bones) if (b != null && b.IsChildOf(can)) { driven = true; break; }
+                if (driven) list.Add(smr);
+            }
+            return list;
+        }
+
         /// <summary>Samples the deploy clips (semi, then full, so full wins) at their last frame.</summary>
-        static int SampleEnd(Animation anim, ModuleParachute mp)
+        static int SampleEnd(Animation anim, ChuteSpec mp)
         {
             var names = new List<string>();
-            foreach (var c in new[] { mp.semiDeployedAnimation, mp.fullyDeployedAnimation })
+            foreach (var c in new[] { mp.semi, mp.full })
                 if (!string.IsNullOrEmpty(c) && anim[c] != null) names.Add(c);
             if (names.Count == 0)
             {
@@ -231,7 +284,7 @@ namespace EjectionSeats
         }
 
         /// <summary>Bakes the fully-deployed canopy of any parachute part (prefab or live instance).</summary>
-        static StockCanopy GetCanopy(string key, Transform partRoot, ModuleParachute mp)
+        static StockCanopy GetCanopy(string key, Transform partRoot, ChuteSpec mp)
         {
             StockCanopy sc;
             bool live = key.StartsWith("live:");          // live parts may be re-textured at any time: never cache
@@ -265,15 +318,19 @@ namespace EjectionSeats
                 if (sampled == 0)
                     Log.Warn("parachute '" + partName + "': no deploy animation could be sampled, so its canopy may be stowed - " +
                              "checking its shape before using it");
-                else Log.Dbg("parachute '" + partName + "': posed with " + sampled + " deploy clip(s)");
+                else Log.Dbg("parachute '" + partName + "' (" + mp.source + "): posed with " + sampled + " deploy clip(s)");
 
-                Transform can = CockpitAnalyzer.FindDeep(copy.transform, string.IsNullOrEmpty(mp.canopyName) ? "canopy" : mp.canopyName);
-                if (can == null) { cache[partName] = null; return null; }
+                Transform can = CockpitAnalyzer.FindDeep(copy.transform, mp.canopy);
+                if (can == null)
+                {
+                    Log.Warn("parachute '" + partName + "' (" + mp.source + "): canopy '" + mp.canopy + "' not found - using the built-in canopy");
+                    cache[partName] = null; return null;
+                }
                 Matrix4x4 toRoot = copy.transform.worldToLocalMatrix;
 
                 var V = new List<Vector3>(); var N = new List<Vector3>(); var UV = new List<Vector2>();
                 var subs = new List<List<int>>(); var mats = new List<Material>();
-                foreach (Renderer r in can.GetComponentsInChildren<Renderer>(true))
+                foreach (Renderer r in CanopyRenderers(copy, can))
                 {
                     Mesh m; Matrix4x4 mtx;
                     var smr = r as SkinnedMeshRenderer;
@@ -291,6 +348,13 @@ namespace EjectionSeats
                         mtx = toRoot * mf.transform.localToWorldMatrix;
                     }
                     Vector3[] mv = m.vertices; Vector3[] mn = m.normals; Vector2[] mu = m.uv;
+                    if (Log.DebugOn)
+                    {
+                        Bounds rb = new Bounds(mv.Length > 0 ? mtx.MultiplyPoint3x4(mv[0]) : Vector3.zero, Vector3.zero);
+                        foreach (var x in mv) rb.Encapsulate(mtx.MultiplyPoint3x4(x));
+                        Log.Dbg("parachute '" + partName + "': canopy piece '" + r.name + "' " + (smr != null ? "skinned" : "mesh") + ", " + mv.Length +
+                                " verts, centre " + rb.center.ToString("F2") + " size " + rb.size.ToString("F2") + " lossy " + r.transform.lossyScale.ToString("F2"));
+                    }
                     int baseIdx = V.Count;
                     for (int i = 0; i < mv.Length; i++)
                     {
@@ -311,7 +375,27 @@ namespace EjectionSeats
                 }
                 if (V.Count == 0) { cache[partName] = null; return null; }
 
-                // locate the dome: axis = part up (Y). Hem = lowest ring among the widest vertices.
+                // Turn the canopy upright first. Not every model opens along the part's up axis: ReStock's radial
+                // chute deploys along -Z, which measured side-on came out as a flat, tiny canopy on long lines. The
+                // canopy opens away from its root (where the lines gather), so that direction is its axis.
+                {
+                    Vector3 centroid = Vector3.zero;
+                    foreach (var p in V) centroid += p;
+                    centroid /= V.Count;
+                    Vector3 rootPos = toRoot.MultiplyPoint3x4(can.position);
+                    Vector3 axis = centroid - rootPos;
+                    if (axis.sqrMagnitude > 1e-4f)
+                    {
+                        Quaternion upright = Quaternion.FromToRotation(axis.normalized, Vector3.up);
+                        if (Quaternion.Angle(upright, Quaternion.identity) > 1f)
+                        {
+                            for (int i = 0; i < V.Count; i++) { V[i] = upright * (V[i] - rootPos) + rootPos; N[i] = upright * N[i]; }
+                            if (Log.DebugOn) Log.Dbg("parachute '" + partName + "': canopy opens along " + axis.normalized.ToString("F2") + " - turned upright");
+                        }
+                    }
+                }
+
+                // locate the dome: axis = up (Y) now. Hem = lowest ring among the widest vertices.
                 Vector3 c = Vector3.zero;
                 foreach (var p in V) c += p;
                 c /= V.Count;
@@ -324,6 +408,7 @@ namespace EjectionSeats
                     if (rr > maxR * 0.75f) hem = Mathf.Min(hem, p.y);
                     top = Mathf.Max(top, p.y);
                 }
+                if (Log.DebugOn) Log.Dbg("parachute '" + partName + "': baked canopy " + (maxR * 2f).ToString("F2") + " m wide, " + (top - hem).ToString("F2") + " m tall, centre " + c.ToString("F2"));
                 if (maxR < 1e-3f || top <= hem) { cache[partName] = null; return null; }
                 // A deployed canopy is metres across and about as tall as it is wide (stock: 3.3-6.2 m, height/radius
                 // 0.7-1.0). Stowed it is a few-centimetre bundle (stock: 1-3 cm), and baking that and scaling it up is
@@ -655,26 +740,30 @@ namespace EjectionSeats
             float T = Mathf.Max(0.3f, openTime);
             float tPull = T * 0.08f, tStream = T * 0.17f, tSemiEnd = tPull + tStream + T * Mathf.Clamp(semiFraction, 0.05f, 0.8f);
             float sx, sy;
+            // Shapes follow real canopies: the streamer is brief, and the reefed canopy is a partly open bell about
+            // 40% of full width, only a little longer than the open one. (It used to stay a long, narrow tube for
+            // most of the opening, which read as a collapsed canopy - GitHub issue #3.)
             if (t < tPull)
             {
                 float k = t / tPull;
-                sx = Mathf.Lerp(0.02f, 0.05f, k); sy = Mathf.Lerp(0.05f, 0.6f, k);
+                sx = Mathf.Lerp(0.03f, 0.08f, k); sy = Mathf.Lerp(0.1f, 0.55f, k);
                 OpenFraction = 0.01f;
             }
             else if (t < tPull + tStream)
             {
                 float k = (t - tPull) / tStream;
-                sx = Mathf.Lerp(0.05f, 0.12f, k); sy = Mathf.Lerp(0.6f, 1.6f, k);
-                OpenFraction = Mathf.Lerp(0.01f, 0.05f, k);
+                float e = 1f - (1f - k) * (1f - k);
+                sx = Mathf.Lerp(0.08f, 0.3f, e); sy = Mathf.Lerp(0.55f, 1.15f, e);
+                OpenFraction = Mathf.Lerp(0.01f, 0.06f, k);
             }
             else if (t < tSemiEnd)
             {
-                // reefed: narrow, long canopy that flutters
+                // reefed: a partly open bell that breathes and flutters
                 float k = (t - tPull - tStream) / (tSemiEnd - tPull - tStream);
                 float e = 1f - (1f - k) * (1f - k);
-                float flutter = Mathf.Sin(t * 17f) * 0.015f;
-                sx = Mathf.Lerp(0.12f, 0.32f, Mathf.Min(1f, e * 1.6f)) + flutter;
-                sy = Mathf.Lerp(1.6f, 1.25f, e);
+                float flutter = Mathf.Sin(t * 17f) * 0.02f + Mathf.Sin(t * 6.3f) * 0.015f;
+                sx = Mathf.Lerp(0.3f, 0.42f, e) + flutter;
+                sy = Mathf.Lerp(1.15f, 1.08f, e);
                 OpenFraction = 0.12f;
             }
             else if (t < T)
@@ -683,8 +772,8 @@ namespace EjectionSeats
                 float k = (t - tSemiEnd) / Mathf.Max(0.05f, T - tSemiEnd);
                 float e = 1f - Mathf.Pow(1f - k, 3f);
                 float over = Mathf.Sin(k * Mathf.PI) * 0.08f;
-                sx = Mathf.Lerp(0.32f, 1f, e) + over;
-                sy = Mathf.Lerp(1.25f, 1f, e) - over * 0.5f;
+                sx = Mathf.Lerp(0.42f, 1f, e) + over;
+                sy = Mathf.Lerp(1.08f, 1f, e) - over * 0.5f;
                 OpenFraction = Mathf.Lerp(0.12f, 1f, e);
             }
             else

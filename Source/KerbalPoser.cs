@@ -10,6 +10,42 @@ namespace EjectionSeats
     /// Positions are in the kerbal's own frame (x right, y up, z forward) unless noted.
     /// </summary>
     [DefaultExecutionOrder(-50)]   // before mirrors that copy the bones (RealWindows copy, cabin mirror)
+    /// <summary>
+    /// Bookkeeping for the KSP animation clips the mod plays on a kerbal: which ones are ours, and what their loop
+    /// setting was before we changed it, so both can be handed back to KSP intact.
+    /// </summary>
+    public static class KerbalAnims
+    {
+        static readonly Dictionary<Animation, Dictionary<string, WrapMode>> changed = new Dictionary<Animation, Dictionary<string, WrapMode>>();
+        static readonly HashSet<string> ours = new HashSet<string>();
+
+        public static void Loop(Animation anim, string clip)
+        {
+            if (anim == null || anim[clip] == null) return;
+            ours.Add(clip);
+            Dictionary<string, WrapMode> d;
+            if (!changed.TryGetValue(anim, out d)) changed[anim] = d = new Dictionary<string, WrapMode>();
+            if (!d.ContainsKey(clip)) d[clip] = anim[clip].wrapMode;
+            anim[clip].wrapMode = WrapMode.Loop;
+        }
+
+        /// <summary>True for a clip the mod has played on any kerbal (parachute, seated, freefall...).</summary>
+        public static bool IsOurs(string clip) { return ours.Contains(clip); }
+
+        public static void Restore(Animation anim)
+        {
+            if (anim == null) return;
+            Dictionary<string, WrapMode> d;
+            if (!changed.TryGetValue(anim, out d)) return;
+            foreach (var kv in d) if (anim[kv.Key] != null) anim[kv.Key].wrapMode = kv.Value;
+            changed.Remove(anim);
+            // drop entries for kerbals that no longer exist
+            var dead = new List<Animation>();
+            foreach (var a in changed.Keys) if (a == null) dead.Add(a);
+            foreach (var a in dead) changed.Remove(a);
+        }
+    }
+
     public class KerbalPoser : MonoBehaviour
     {
         public enum Mode { None, Brace, Freefall, Chute }
@@ -139,8 +175,11 @@ namespace EjectionSeats
         void Chute(float w)
         {
             // KSP's own parachute animations: braking while the canopy opens, then hanging, with the odd
-            // look round (the turn clips)
-            if (anim != null && Time.time >= nextChuteClip)
+            // look round (the turn clips). Only while we own the kerbal: once it has been handed back to KSP this
+            // layer just fades out, and starting a clip then (with StopAll) replaced the animation KSP had just
+            // started for landing - which KSP never restarts, so the kerbal looped a parachute clip on the ground.
+            bool ours = mode == Mode.Chute && chute != null;
+            if (ours && anim != null && Time.time >= nextChuteClip)
             {
                 string want;
                 float hold;
@@ -149,14 +188,14 @@ namespace EjectionSeats
                 else { want = "chute_idle"; hold = Random.Range(3.5f, 7f); }
                 if (anim[want] != null && want != chuteClip)
                 {
-                    anim[want].wrapMode = WrapMode.Loop;
+                    KerbalAnims.Loop(anim, want);
                     anim.CrossFade(want, 0.5f, PlayMode.StopAll);
                     chuteClip = want;
                 }
                 nextChuteClip = Time.time + hold;
             }
             // glance up at the canopy while it opens
-            if (chute.OpenFraction < 0.98f) Look(chute.CanopyCenter - head.position, 35f, w * 0.7f);
+            if (chute != null && chute.OpenFraction < 0.98f) Look(chute.CanopyCenter - head.position, 35f, w * 0.7f);
         }
 
         // ------------------------------------------------------------------ helpers

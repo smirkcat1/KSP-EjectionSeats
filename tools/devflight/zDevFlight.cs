@@ -98,6 +98,8 @@ namespace zDevFlight
             float camDist = Cfg.F("camDist", 4f), camHdg = Cfg.F("camHdg", 1.3f), camPitch = Cfg.F("camPitch", 0.15f);
             float duration = Cfg.F("duration", 6f), t = 0f; int shot = 0;
             EjectionSequence seq = null;
+            KerbalEVA trackedEva = null;
+            float nextAnimLog = 0f;
             // uncapped, so frame times show the real cost rather than the 60 fps limit
             QualitySettings.vSyncCount = 0;
             Application.targetFrameRate = -1;
@@ -115,6 +117,17 @@ namespace zDevFlight
                 if (Application.targetFrameRate != -1 || QualitySettings.vSyncCount != 0) { QualitySettings.vSyncCount = 0; Application.targetFrameRate = -1; }
                 if (Time.timeScale < 0.99f) { Time.timeScale = 1f; Time.fixedDeltaTime = 0.02f; }   // no slow motion in tests
                 if (seq == null) { var all = FindObjectsOfType<EjectionSequence>(); if (all.Length > 0) seq = all[0]; }
+                if (seq != null && seq.eva != null) trackedEva = seq.eva;
+                if (Cfg.F("animLog", 0f) > 0f && trackedEva != null && t >= nextAnimLog)
+                {
+                    nextAnimLog = t + 2f;
+                    var an = trackedEva.GetComponentInChildren<Animation>();
+                    var sb = new StringBuilder("anim t=" + t.ToString("F1", CultureInfo.InvariantCulture) + " phase=" + (seq != null ? seq.Phase : "done") +
+                        " fsm=" + (trackedEva.fsm != null && trackedEva.fsm.CurrentState != null ? trackedEva.fsm.CurrentState.name : "?") +
+                        " landed=" + (trackedEva.vessel != null && trackedEva.vessel.LandedOrSplashed) + " evaOn=" + trackedEva.enabled + ":");
+                    if (an != null) foreach (AnimationState st in an) if (st.enabled && st.weight > 0.01f) sb.Append(" " + st.name + "(w" + st.weight.ToString("F2", CultureInfo.InvariantCulture) + "," + st.wrapMode + ")");
+                    W(sb.ToString());
+                }
                 if (seq != null && seq.eva != null && seq.eva.vessel != null && FlightGlobals.ActiveVessel != seq.eva.vessel && !seq.eva.vessel.packed) FlightGlobals.ForceSetActiveVessel(seq.eva.vessel);
                 if (wantDump && seq != null && (seq.Phase == "burn" || seq.Phase == "coast")) { wantDump = false; StartCoroutine(DumpLater(seq)); }
                 if (wantPlume && seq != null && seq.Phase == "burn")

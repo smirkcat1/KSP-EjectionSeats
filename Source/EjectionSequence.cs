@@ -472,8 +472,32 @@ namespace EjectionSeats
             if (anim == null || string.IsNullOrEmpty(key)) return;
             string clip = ResolveClip(key);
             if (clip == null || anim[clip] == null) { Log.Dbg("animation '" + key + "' not found"); return; }
-            anim[clip].wrapMode = WrapMode.Loop;
+            KerbalAnims.Loop(anim, clip);
             anim.CrossFade(clip, fade, PlayMode.StopAll);
+        }
+
+        /// <summary>
+        /// Gives the kerbal's animation back to KSP. KSP only starts an animation when its EVA state changes, so if
+        /// one of ours is still playing when it already stands in its idle state, it would loop that forever: in
+        /// that case start KSP's idle ourselves. Clip settings we changed are put back as they were.
+        /// </summary>
+        void HandAnimationsBack()
+        {
+            if (eva == null || anim == null) return;
+            KerbalAnims.Restore(anim);
+            try
+            {
+                if (eva.fsm == null || eva.fsm.CurrentState != eva.st_idle_gr) return;
+                string idle = ResolveClip("idle");
+                if (idle == null || anim[idle] == null) return;
+                bool oursPlaying = false;
+                foreach (AnimationState st in anim)
+                    if (st.enabled && st.weight > 0.05f && st.name != idle && KerbalAnims.IsOurs(st.name)) { oursPlaying = true; break; }
+                if (!oursPlaying && anim.IsPlaying(idle)) return;
+                anim.CrossFade(idle, 0.3f, PlayMode.StopAll);
+                Log.Dbg("handed the kerbal's animation back to KSP's idle");
+            }
+            catch (Exception e) { Log.Dbg("animation hand-back: " + e.Message); }
         }
 
         /// <summary>Accepts a KerbalAnimationManager field name (e.g. "seatIdle") or a raw clip name.</summary>
@@ -1171,18 +1195,26 @@ namespace EjectionSeats
             if (eva != null) eva.enabled = true;
             Unshield();
             ForceRecover();
+            if (poser != null) { poser.chute = null; poser.mode = KerbalPoser.Mode.None; }
+            HandAnimationsBack();
             restoreTolAt = Time.time + 4f;   // keep the raised crash tolerance through the landing bounce
         }
+
+        float nextHandBack;
 
         void Update()
         {
             if (!done) return;
+            // the kerbal may only reach KSP's standing state a moment after touchdown: keep checking it isn't
+            // left looping one of our clips
+            if (Time.time >= nextHandBack) { nextHandBack = Time.time + 0.5f; HandAnimationsBack(); }
             if (Time.time < restoreTolAt) { ForceRecover(); return; }   // settle the landing without ragdolling
             // landed next to (or on) the wreck: keep collisions off until clear, for at most 30 s
             if (!collisionsRestored && Time.time < restoreTolAt + 30f) { CheckClearance(); if (!collisionsRestored) return; }
             if (eva != null && origCrashTol > 0f) eva.part.crashTolerance = origCrashTol;
             if (eva != null && origGTol > 0) eva.part.gTolerance = origGTol;
             NoRagdoll(false);
+            HandAnimationsBack();
             Destroy(this);
         }
     }
